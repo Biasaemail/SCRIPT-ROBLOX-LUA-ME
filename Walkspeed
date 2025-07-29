@@ -1,0 +1,29 @@
+-- Pastikan skrip ini dijalankan di lingkungan yang memiliki akses ke 'game'
+
+-- Dapatkan pemain lokal
+local player = game.Players.LocalPlayer
+if not player then
+    -- Coba lagi jika pemain belum siap
+    repeat wait() until player
+end
+
+-- Fungsi untuk mengatur kecepatan berjalan
+local function setPlayerSpeed(speed)
+    -- Periksa apakah karakter pemain ada
+    if player.Character and player.Character:FindFirstChild("Humanoid") then
+        -- Atur properti WalkSpeed dari Humanoid
+        player.Character.Humanoid.WalkSpeed = speed
+    end
+end
+
+-- Panggil fungsi untuk mengatur kecepatan yang diinginkan
+setPlayerSpeed(100)
+
+-- Anda juga dapat memantaunya jika kecepatan diatur ulang oleh skrip lain
+if player.Character and player.Character:FindFirstChild("Humanoid") then
+    player.Character.Humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+        if player.Character.Humanoid.WalkSpeed ~= 100 then
+            player.Character.Humanoid.WalkSpeed = 100
+        end
+    end)
+end
