@@ -1,0 +1,128 @@
+local Players = game:GetService("Players")
+local Mouse = Players.LocalPlayer:GetMouse()
+local Player = Players.LocalPlayer
+
+-- GUI Creation
+local ScreenGui = Instance.new("ScreenGui")
+local MainFrame = Instance.new("Frame")
+local Title = Instance.new("TextLabel")
+local CopyToolBtn = Instance.new("TextButton")
+
+-- GUI Properties
+ScreenGui.Name = "CopyToolGUI"
+ScreenGui.Parent = Player:WaitForChild("PlayerGui")
+ScreenGui.ResetOnSpawn = false
+
+MainFrame.Name = "MainFrame"
+MainFrame.Parent = ScreenGui
+MainFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+MainFrame.BorderSizePixel = 0
+MainFrame.Position = UDim2.new(0, 10, 0.3, 0)
+MainFrame.Size = UDim2.new(0, 180, 0, 100)
+MainFrame.Active = true
+MainFrame.Draggable = true
+
+Title.Name = "Title"
+Title.Parent = MainFrame
+Title.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+Title.BorderSizePixel = 0
+Title.Size = UDim2.new(1, 0, 0, 30)
+Title.Font = Enum.Font.SourceSansBold
+Title.Text = "Copy Tool"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 16
+
+CopyToolBtn.Name = "CopyToolBtn"
+CopyToolBtn.Parent = MainFrame
+CopyToolBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+CopyToolBtn.BorderSizePixel = 0
+CopyToolBtn.Position = UDim2.new(0.1, 0, 0.5, 0)
+CopyToolBtn.Size = UDim2.new(0.8, 0, 0, 30)
+CopyToolBtn.Font = Enum.Font.SourceSans
+CopyToolBtn.Text = "Activate Copy Tool"
+CopyToolBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CopyToolBtn.TextSize = 14
+
+-- Copy Tool Function
+local function CreateCopyTool()
+    local tool = Instance.new("Tool")
+    tool.Name = "CopyTool"
+    tool.RequiresHandle = false
+    tool.CanBeDropped = false
+
+    tool.Equipped:Connect(function()
+        Mouse.Icon = "rbxasset://SystemCursors/Cross"
+    end)
+
+    tool.Unequipped:Connect(function()
+        Mouse.Icon = ""
+    end)
+
+    tool.Activated:Connect(function()
+        local target = Mouse.Target
+        if target and target:IsA("BasePart") then
+            -- Buat salinan objek
+            local cloned = target:Clone()
+            
+            -- Dapatkan posisi karakter
+            local character = Player.Character
+            if character and character:FindFirstChild("HumanoidRootPart") then
+                local rootPart = character.HumanoidRootPart
+                local lookVector = rootPart.CFrame.LookVector
+                
+                -- Posisikan objek 5 studs di depan karakter
+                -- Gunakan ketinggian yang sama dengan karakter
+                local spawnPosition = rootPart.Position + (lookVector * 5)
+                spawnPosition = Vector3.new(
+                    spawnPosition.X,
+                    target.Position.Y, -- Pertahankan ketinggian asli objek
+                    spawnPosition.Z
+                )
+                
+                -- Atur properti salinan
+                cloned.Anchored = true
+                cloned.Position = spawnPosition
+                cloned.Parent = workspace
+                
+                -- Notifikasi sukses
+                game:GetService("StarterGui"):SetCore("SendNotification", {
+                    Title = "Copy Success",
+                    Text = "Object copied in front of you!",
+                    Duration = 2
+                })
+            end
+        else
+            -- Notifikasi jika target tidak valid
+            game:GetService("StarterGui"):SetCore("SendNotification", {
+                Title = "Copy Failed",
+                Text = "Please select a valid object.",
+                Duration = 2
+            })
+        end
+    end)
+
+    return tool
+end
+
+-- Equip Copy Tool
+local function EquipCopyTool()
+    -- Pastikan tool lama tidak bertumpuk
+    for _, tool in pairs(Player.Backpack:GetChildren()) do
+        if tool.Name == "CopyTool" then
+            tool:Destroy()
+        end
+    end
+
+    local copyTool = CreateCopyTool()
+    copyTool.Parent = Player.Backpack
+end
+
+-- Button Connection
+CopyToolBtn.MouseButton1Click:Connect(EquipCopyTool)
+
+-- Initialization Notification
+game:GetService("StarterGui"):SetCore("SendNotification", {
+    Title = "Copy Tool Loaded",
+    Text = "Press the button to activate the Copy Tool.",
+    Duration = 3
+})
