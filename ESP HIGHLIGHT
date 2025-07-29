@@ -1,0 +1,263 @@
+-- LocalScript, idealnya disimpan di StarterPlayer > StarterPlayerScripts
+
+--[=[
+	Deskripsi:
+	Skrip ESP (Extra Sensory Perception) canggih dan event-driven.
+	- Menampilkan Highlight dan Name Tag pada pemain lain.
+	- Logika warna yang cerdas dan dinamis berdasarkan status tim.
+	- Dirancang untuk optimalitas, keandalan, dan kompatibilitas.
+--]=]
+
+-- ============== SERVICES ==============
+local Players = game:GetService("Players")
+local Teams = game:GetService("Teams")
+local RunService = game:GetService("RunService")
+
+-- ============== PEMAIN LOKAL ==============
+local LocalPlayer = Players.LocalPlayer
+if not LocalPlayer then
+	Players.LocalPlayerAdded:Wait()
+	LocalPlayer = Players.LocalPlayer
+end
+
+-- ============== KONFIGURASI ==============
+local config = {
+	-- Warna
+	TEAMMATE_COLOR = Color3.fromRGB(0, 170, 255),       -- Biru cerah untuk teman satu tim
+	ENEMY_FALLBACK_COLOR = Color3.fromRGB(255, 40, 40), -- Merah cerah untuk musuh (jika TeamColor tidak valid)
+	NEUTRAL_FFA_COLOR = Color3.fromRGB(0, 255, 127),    -- Hijau cerah untuk mode Free-for-All (tanpa tim)
+
+	-- Pengaturan Highlight
+	FILL_TRANSPARENCY = 0.6,
+	OUTLINE_TRANSPARENCY = 0.1,
+	OUTLINE_COLOR = Color3.fromRGB(0, 0, 0),
+
+	-- Pengaturan Name Tag (BillboardGui)
+	NAME_TAG_OFFSET = Vector3.new(0, 2.5, 0), -- Seberapa tinggi nama di atas kepala
+	NAME_TAG_FONT = Enum.Font.GothamSemibold,
+	NAME_TAG_FONT_SIZE = 16, -- Ukuran font yang baik untuk PC dan Mobile
+
+	-- Nama unik untuk instance agar tidak konflik
+	HIGHLIGHT_NAME = "PlayerESP_Highlight_v3",
+	NAME_TAG_GUI_NAME = "PlayerESP_NameTag_v3"
+}
+
+-- ============== STATE MANAGEMENT ==============
+local playerConnections = {}
+
+-- ============== FUNGSI LOGIKA ==============
+
+-- Fungsi untuk cek apakah sistem tim aktif digunakan di game ini
+local function areTeamsActive()
+	-- Sistem tim dianggap aktif jika ada lebih dari satu tim yang terdaftar
+	return #Teams:GetTeams() > 1
+end
+
+-- Fungsi inti untuk menentukan status dan warna ESP untuk seorang pemain
+local function getEspData(player)
+	-- 1. Pengecekan Target Tidak Valid
+	if not player or player == LocalPlayer then return { shouldShow = false } end
+	if not player.Character or not player.Character.Parent then return { shouldShow = false } end
+
+	local character = player.Character
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid:GetState() == Enum.HumanoidStateType.Dead then
+		return { shouldShow = false }
+	end
+
+	local head = character:FindFirstChild("Head")
+	if not head then return { shouldShow = false } end -- Wajib punya kepala untuk Name Tag
+
+	-- 2. Penentuan Warna Berdasarkan Logika Tim
+	local espData = {
+		shouldShow = true,
+		character = character,
+		head = head,
+		displayName = player.DisplayName,
+		color = nil
+	}
+
+	if areTeamsActive() then
+		local localTeam = LocalPlayer.Team
+		local targetTeam = player.Team
+
+		if not localTeam or not targetTeam then
+			-- Jika salah satu tidak punya tim dalam mode tim, abaikan saja
+			espData.shouldShow = false
+		elseif localTeam == targetTeam then
+			-- Ini teman satu tim
+			espData.color = config.TEAMMATE_COLOR
+		else
+			-- Ini adalah musuh
+			-- Gunakan TeamColor bawaan untuk akurasi maksimal
+			local teamColor = targetTeam.TeamColor.Color
+			-- Jika warna tim terlalu gelap/tidak terlihat, gunakan warna fallback
+			local _, s, v = Color3.toHSV(teamColor)
+			if s < 0.1 or v < 0.2 then
+				espData.color = config.ENEMY_FALLBACK_COLOR
+			else
+				espData.color = teamColor
+			end
+		end
+	else
+		-- Mode tanpa tim / Free-For-All (FFA)
+		espData.color = config.NEUTRAL_FFA_COLOR
+	end
+
+	return espData
+end
+
+
+-- ============== FUNGSI UTAMA (UPDATE VISUAL) ==============
+
+-- Fungsi tunggal untuk mengelola Highlight dan Name Tag
+local function updatePlayerESP(player)
+	local espData = getEspData(player)
+	local character = player.Character -- Bisa nil jika pemain baru saja keluar
+
+	if not espData.shouldShow then
+		-- Target tidak valid, hapus semua visual
+		if character then
+			local oldHighlight = character:FindFirstChild(config.HIGHLIGHT_NAME)
+			if oldHighlight then oldHighlight:Destroy() end
+
+			local oldNameTag = character:FindFirstChild(config.NAME_TAG_GUI_NAME)
+			if oldNameTag then oldNameTag:Destroy() end
+		end
+		return
+	end
+
+	-- Target valid, pastikan visual ada dan terkonfigurasi
+	local char = espData.character
+	local head = espData.head
+	local color = espData.color
+
+	-- --- Kelola Highlight ---
+	local highlight = char:FindFirstChild(config.HIGHLIGHT_NAME)
+	if not highlight then
+		highlight = Instance.new("Highlight")
+		highlight.Name = config.HIGHLIGHT_NAME
+		highlight.Adornee = char
+		highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+		highlight.Parent = char
+	end
+	highlight.FillColor = color
+	highlight.OutlineColor = config.OUTLINE_COLOR
+	highlight.FillTransparency = config.FILL_TRANSPARENCY
+	highlight.OutlineTransparency = config.OUTLINE_TRANSPARENCY
+	highlight.Enabled = true
+
+	-- --- Kelola Name Tag (BillboardGui) ---
+	local nameTagGui = head:FindFirstChild(config.NAME_TAG_GUI_NAME)
+	local textLabel
+	if not nameTagGui then
+		nameTagGui = Instance.new("BillboardGui")
+		nameTagGui.Name = config.NAME_TAG_GUI_NAME
+		nameTagGui.Adornee = head
+		nameTagGui.Size = UDim2.new(0, 120, 0, 30) -- Ukuran Billboard dalam piksel
+		nameTagGui.StudsOffset = config.NAME_TAG_OFFSET
+		nameTagGui.AlwaysOnTop = true
+		nameTagGui.Parent = head
+
+		textLabel = Instance.new("TextLabel")
+		textLabel.Name = "PlayerName"
+		textLabel.Size = UDim2.new(1, 0, 1, 0)
+		textLabel.Font = config.NAME_TAG_FONT
+		textLabel.TextSize = config.NAME_TAG_FONT_SIZE
+		textLabel.TextStrokeTransparency = 0.5
+		textLabel.TextStrokeColor3 = config.OUTLINE_COLOR
+		textLabel.BackgroundTransparency = 1
+		textLabel.Parent = nameTagGui
+	else
+		textLabel = nameTagGui:FindFirstChild("PlayerName")
+	end
+
+	if textLabel then
+		textLabel.Text = espData.displayName
+		textLabel.TextColor3 = color
+	end
+	nameTagGui.Enabled = true
+end
+
+-- ============== EVENT HANDLING ==============
+
+-- Fungsi untuk membersihkan semua koneksi dan visual untuk seorang pemain
+local function cleanupPlayer(player)
+	if not playerConnections[player] then return end
+
+	for _, connection in pairs(playerConnections[player]) do
+		if connection.Connected then connection:Disconnect() end
+	end
+	playerConnections[player] = nil
+
+	-- Langkah pembersihan terakhir jika karakter masih ada
+	if player.Character then
+		updatePlayerESP(player) -- Ini akan menghapus visual karena target tidak lagi valid
+	end
+end
+
+-- Fungsi untuk menyiapkan listener event untuk pemain
+local function setupPlayer(player)
+	if playerConnections[player] then return end -- Sudah ada, jangan duplikasi
+
+	local connections = {}
+	playerConnections[player] = connections
+
+	connections.CharacterAdded = player.CharacterAdded:Connect(function(character)
+		task.defer(updatePlayerESP, player) -- Defer untuk memastikan semua siap
+		local humanoid = character:WaitForChild("Humanoid", 2)
+		if humanoid then
+			connections.Died = humanoid.Died:Connect(function()
+				task.defer(updatePlayerESP, player)
+			end)
+		end
+	end)
+
+	connections.CharacterRemoving = player.CharacterRemoving:Connect(function()
+		task.wait() -- Beri jeda singkat agar proses internal game selesai
+		updatePlayerESP(player)
+	end)
+
+	connections.TeamChanged = player:GetPropertyChangedSignal("Team"):Connect(function()
+		updatePlayerESP(player)
+	end)
+
+	-- Jalankan update awal jika pemain sudah punya karakter
+	task.defer(updatePlayerESP, player)
+end
+
+-- Fungsi untuk mengupdate ESP SEMUA pemain (berguna saat tim kita berubah)
+local function updateAllPlayersESP()
+	for _, player in ipairs(Players:GetPlayers()) do
+		updatePlayerESP(player)
+	end
+end
+
+-- ============== KONEKSI EVENT UTAMA ==============
+
+-- Saat tim kita berubah, update semua
+LocalPlayer:GetPropertyChangedSignal("Team"):Connect(updateAllPlayersESP)
+-- Saat kita spawn/respawn, update semua (karena LocalPlayer.Team mungkin baru diset)
+LocalPlayer.CharacterAdded:Connect(function()
+	task.wait(0.1) -- Tunggu sebentar agar properti Team ter-update
+	updateAllPlayersESP()
+end)
+
+-- Proses pemain yang sudah ada saat skrip berjalan
+for _, player in ipairs(Players:GetPlayers()) do
+	setupPlayer(player)
+end
+
+-- Saat pemain baru bergabung atau keluar
+Players.PlayerAdded:Connect(setupPlayer)
+Players.PlayerRemoving:Connect(cleanupPlayer)
+
+-- Pembersihan total saat skrip dihancurkan
+script.Destroying:Connect(function()
+	for player, _ in pairs(playerConnections) do
+		cleanupPlayer(player)
+	end
+end)
+
+print("Advanced Player ESP Script Initialized (v3)")
+
