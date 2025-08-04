@@ -1,0 +1,1 @@
+loadstrIsing(game:HttpGet("https://raw.githubusercontent.com/Biasaemail/Test/refs/heads/main/FLING%20V4%20(1).txt"))()
