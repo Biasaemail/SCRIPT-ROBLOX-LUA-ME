@@ -1,0 +1,409 @@
+--[[
+    ===================================================================
+    -- Project Nova GUI --
+    Desain Ulang Total untuk Estetika & Fungsionalitas Maksimal.
+
+    Fitur Unggulan:
+    - [PERBAIKAN 4] Desain Super Modern: Efek kaca buram, gradien halus, dan animasi cair.
+    - [PERBAIKAN 1] Layout Responsif: Panel lebih lebar dengan area scroll untuk mobile.
+    - [PERBAIKAN 3] Integrasi Skrip Penuh: Semua skrip Anda telah diintegrasikan dengan tombol & ikon yang sesuai.
+    - [PERBAIKAN 2] Kode Bersih: Tidak ada lagi contoh skrip, hanya fungsionalitas yang Anda minta.
+    - Organisasi Cerdas: Tombol Toggle (ON/OFF) dan Executor (Sekali Klik) dipisahkan.
+    ===================================================================
+]]
+
+-- Services
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local Lighting = game:GetService("Lighting")
+local Teams = game:GetService("Teams")
+
+-- Player & GUI Variables
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- ===================================================================
+-- ||                       KONFIGURASI DESAIN                      ||
+-- ===================================================================
+local Config = {
+    -- Colors
+    BaseColor = Color3.fromRGB(20, 22, 25),
+    AccentColor = Color3.fromRGB(0, 225, 255), -- Cyan Terang
+    SuccessColor = Color3.fromRGB(0, 255, 120), -- Hijau Neon
+    FailureColor = Color3.fromRGB(255, 70, 100), -- Merah Muda Terang
+    TextColor = Color3.fromRGB(240, 240, 245),
+    SecondaryTextColor = Color3.fromRGB(150, 155, 160),
+
+    -- Font
+    Font = Enum.Font.GothamSemibold,
+    TitleSize = 18,
+    ButtonTextSize = 15,
+    CategoryTextSize = 12,
+
+    -- Animation
+    AnimationInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+}
+
+-- ===================================================================
+-- ||                    PEMBUATAN GUI & ELEMEN                     ||
+-- ===================================================================
+
+-- ScreenGui
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "ProjectNovaGUI"
+ScreenGui.ResetOnSpawn = false
+
+-- Main Frame
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Parent = ScreenGui
+MainFrame.Size = UDim2.new(0, 280, 0, 400) -- [PERBAIKAN 1] Lebih lebar
+MainFrame.Position = UDim2.new(0, -300, 0.5, -200) -- Mulai di luar layar
+MainFrame.BackgroundColor3 = Config.BaseColor
+MainFrame.BackgroundTransparency = 0.15 -- Efek Kaca
+MainFrame.BorderSizePixel = 0
+
+local UICorner_Main = Instance.new("UICorner")
+UICorner_Main.CornerRadius = UDim.new(0, 12)
+UICorner_Main.Parent = MainFrame
+
+local UIStroke_Main = Instance.new("UIStroke")
+UIStroke_Main.Color = Config.AccentColor
+UIStroke_Main.Thickness = 1.5
+UIStroke_Main.Transparency = 0.5
+UIStroke_Main.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+UIStroke_Main.Parent = MainFrame
+
+local UIGradient_Main = Instance.new("UIGradient")
+UIGradient_Main.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(40, 42, 50)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 22, 25))
+})
+UIGradient_Main.Rotation = 90
+UIGradient_Main.Parent = MainFrame
+
+-- Scrolling Frame for Buttons [PERBAIKAN 1]
+local ScrollFrame = Instance.new("ScrollingFrame")
+ScrollFrame.Name = "ScrollFrame"
+ScrollFrame.Parent = MainFrame
+ScrollFrame.Size = UDim2.new(1, -20, 1, -50)
+ScrollFrame.Position = UDim2.new(0, 10, 0, 40)
+ScrollFrame.BackgroundColor3 = Color3.new()
+ScrollFrame.BackgroundTransparency = 1
+ScrollFrame.BorderSizePixel = 0
+ScrollFrame.ScrollBarImageColor3 = Config.AccentColor
+ScrollFrame.ScrollBarThickness = 4
+
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.Parent = ScrollFrame
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Padding = UDim.new(0, 8)
+
+-- Title
+local Title = Instance.new("TextLabel")
+Title.Name = "Title"
+Title.Parent = MainFrame
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.BackgroundColor3 = Color3.new()
+Title.BackgroundTransparency = 1
+Title.Font = Config.Font
+Title.Text = "Project Nova"
+Title.TextColor3 = Config.TextColor
+Title.TextSize = Config.TitleSize
+
+-- Toggle Button (Open/Close)
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Name = "ToggleButton"
+ToggleButton.Parent = ScreenGui
+ToggleButton.Size = UDim2.new(0, 45, 0, 45)
+ToggleButton.Position = UDim2.new(0, 15, 0.5, -22.5)
+ToggleButton.BackgroundColor3 = Config.BaseColor
+ToggleButton.BackgroundTransparency = 0.1
+ToggleButton.Font = Enum.Font.GothamBold
+ToggleButton.Text = "›"
+ToggleButton.TextColor3 = Config.AccentColor
+ToggleButton.TextSize = 30
+ToggleButton.ZIndex = 10
+
+local UICorner_Toggle = Instance.new("UICorner")
+UICorner_Toggle.CornerRadius = UDim.new(0, 8)
+UICorner_Toggle.Parent = ToggleButton
+
+local UIStroke_Toggle = Instance.new("UIStroke")
+UIStroke_Toggle.Color = Config.AccentColor
+UIStroke_Toggle.Thickness = 1.5
+UIStroke_Toggle.Parent = ToggleButton
+
+-- ===================================================================
+-- ||                 FUNGSI PEMBUAT TOMBOL & LOGIKA                ||
+-- ===================================================================
+
+local function createCategoryLabel(text, order)
+    local label = Instance.new("TextLabel")
+    label.Name = text .. "Category"
+    label.Parent = ScrollFrame
+    label.Size = UDim2.new(1, 0, 0, 20)
+    label.BackgroundTransparency = 1
+    label.Font = Config.Font
+    label.Text = string.upper(text)
+    label.TextColor3 = Config.SecondaryTextColor
+    label.TextSize = Config.CategoryTextSize
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.LayoutOrder = order
+    return label
+end
+
+local function createToggleButton(icon, text, order, callback)
+    local button = Instance.new("TextButton")
+    button.Name = text .. "Toggle"
+    button.Parent = ScrollFrame
+    button.Size = UDim2.new(1, 0, 0, 40)
+    button.BackgroundColor3 = Config.BaseColor
+    button.Font = Config.Font
+    button.Text = string.format(" %s  %s: [OFF]", icon, text)
+    button.TextColor3 = Config.TextColor
+    button.TextSize = Config.ButtonTextSize
+    button.TextXAlignment = Enum.TextXAlignment.Left
+    button.LayoutOrder = order
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = button
+
+    local indicator = Instance.new("Frame")
+    indicator.Name = "Indicator"
+    indicator.Parent = button
+    indicator.Size = UDim2.new(0, 4, 0.5, 0)
+    indicator.Position = UDim2.new(1, -12, 0.25, 0)
+    indicator.BackgroundColor3 = Config.FailureColor
+    indicator.BorderSizePixel = 0
+    local indCorner = Instance.new("UICorner")
+    indCorner.CornerRadius = UDim.new(1, 0)
+    indCorner.Parent = indicator
+
+    button.MouseButton1Click:Connect(function()
+        local newState = not (button.Text:find("ON"))
+        button.Text = string.format(" %s  %s: [%s]", icon, text, newState and "ON" or "OFF")
+        local goalColor = newState and Config.SuccessColor or Config.FailureColor
+        TweenService:Create(indicator, Config.AnimationInfo, {BackgroundColor3 = goalColor}):Play()
+        callback(newState)
+    end)
+    return button
+end
+
+local function createOneClickButton(icon, text, order, callback)
+    local button = Instance.new("TextButton")
+    button.Name = text .. "Button"
+    button.Parent = ScrollFrame
+    button.Size = UDim2.new(1, 0, 0, 40)
+    button.BackgroundColor3 = Config.BaseColor
+    button.Font = Config.Font
+    button.Text = string.format(" %s  %s", icon, text)
+    button.TextColor3 = Config.TextColor
+    button.TextSize = Config.ButtonTextSize
+    button.TextXAlignment = Enum.TextXAlignment.Left
+    button.LayoutOrder = order
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = button
+
+    button.MouseButton1Click:Connect(function()
+        local originalColor = button.BackgroundColor3
+        TweenService:Create(button, TweenInfo.new(0.1), {BackgroundColor3 = Config.AccentColor}):Play()
+        callback()
+        wait(0.1)
+        TweenService:Create(button, TweenInfo.new(0.3), {BackgroundColor3 = originalColor}):Play()
+    end)
+    return button
+end
+
+-- ===================================================================
+-- ||                LOGIKA UNTUK SKRIP YANG DIBERIKAN              ||
+-- ===================================================================
+-- [PERBAIKAN 3] Semua skrip Anda diimplementasikan di sini.
+
+-- Variabel untuk koneksi toggle
+local fullBrightConnection = nil
+local espConnections = {}
+
+-- --- Logika untuk Skrip Toggle ---
+
+function toggleFullBright(enabled)
+    if enabled then
+        local function applyBrightSettings()
+            Lighting.ClockTime = 12.0
+            Lighting.Brightness = 0.9
+            Lighting.Ambient = Color3.fromRGB(190, 190, 190)
+            Lighting.OutdoorAmbient = Color3.fromRGB(190, 190, 190)
+            Lighting.FogEnd = 9e9
+            Lighting.FogStart = 9e9 - 1
+            Lighting.ColorShift_Top = Color3.fromRGB(0, 0, 0)
+        end
+        applyBrightSettings()
+        fullBrightConnection = RunService.Heartbeat:Connect(applyBrightSettings)
+        print("Project Nova: Full Bright [ON]")
+    else
+        if fullBrightConnection then
+            fullBrightConnection:Disconnect()
+            fullBrightConnection = nil
+            print("Project Nova: Full Bright [OFF]")
+        end
+    end
+end
+
+function togglePlayerESP(enabled)
+    if enabled then
+        local HIGHLIGHT_NAME = "Nova_ESP_Highlight"
+        local function isTarget(p)
+            return p and p ~= LocalPlayer and p.Character and p.Character:FindFirstChildOfClass("Humanoid") and p.Character.Humanoid.Health > 0
+        end
+        local function updateHighlight(p)
+            local char = p.Character
+            if not char then return end
+            local highlight = char:FindFirstChild(HIGHLIGHT_NAME)
+            if isTarget(p) then
+                if not highlight then
+                    highlight = Instance.new("Highlight")
+                    highlight.Name = HIGHLIGHT_NAME
+                    highlight.Adornee = char
+                    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    highlight.Parent = char
+                end
+                local isEnemy = #Teams:GetTeams() > 0 and LocalPlayer.Team and p.Team and LocalPlayer.Team ~= p.Team
+                highlight.FillColor = isEnemy and Config.FailureColor or Config.AccentColor
+                highlight.OutlineColor = Config.TextColor
+                highlight.FillTransparency = 0.6
+                highlight.OutlineTransparency = 0.2
+                highlight.Enabled = true
+            else
+                if highlight then highlight:Destroy() end
+            end
+        end
+        local function setupPlayer(p)
+            if espConnections[p] then return end
+            espConnections[p] = {}
+            espConnections[p].charAdded = p.CharacterAdded:Connect(function(char)
+                task.wait(0.1)
+                updateHighlight(p)
+                local humanoid = char:WaitForChild("Humanoid")
+                if humanoid then
+                    espConnections[p].died = humanoid.Died:Connect(function() updateHighlight(p) end)
+                end
+            end)
+            espConnections[p].charRemoving = p.CharacterRemoving:Connect(function() updateHighlight(p) end)
+            if p.Character then updateHighlight(p) end
+        end
+        for _, player in ipairs(Players:GetPlayers()) do setupPlayer(player) end
+        espConnections.playerAdded = Players.PlayerAdded:Connect(setupPlayer)
+        espConnections.playerRemoving = Players.PlayerRemoving:Connect(function(p)
+            if espConnections[p] then
+                for _, conn in pairs(espConnections[p]) do conn:Disconnect() end
+                espConnections[p] = nil
+            end
+        end)
+        print("Project Nova: Player ESP [ON]")
+    else
+        for p, conns in pairs(espConnections) do
+            if type(conns) == "table" then
+                for _, conn in pairs(conns) do conn:Disconnect() end
+            end
+        end
+        if espConnections.playerAdded then espConnections.playerAdded:Disconnect() end
+        if espConnections.playerRemoving then espConnections.playerRemoving:Disconnect() end
+        espConnections = {}
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p.Character and p.Character:FindFirstChild("Nova_ESP_Highlight") then
+                p.Character.Nova_ESP_Highlight:Destroy()
+            end
+        end
+        print("Project Nova: Player ESP [OFF]")
+    end
+end
+
+-- --- Logika untuk Skrip Executor ---
+
+local function exec(url)
+    loadstring(game:HttpGet(url))()
+end
+
+local function execAsync(url)
+    loadstring(game:HttpGetAsync(url))()
+end
+
+-- ===================================================================
+-- ||                   IMPLEMENTASI TOMBOL & SKRIP                 ||
+-- ===================================================================
+
+-- Kategori: Toggles
+createCategoryLabel("Toggles", 0)
+createToggleButton("👁️", "Player ESP", 1, togglePlayerESP)
+createToggleButton("💡", "Full Bright", 2, toggleFullBright)
+
+-- Kategori: Player Mods
+createCategoryLabel("Player Mods", 10)
+createOneClickButton("💨", "Infinite Yield", 11, function() exec('https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source') end)
+createOneClickButton("✈️", "ArceusX Fly", 12, function() loadstring("\108\111\97\100\115\116\114\105\110\103\40\103\97\109\101\58\72\116\116\112\71\101\116\40\40\39\104\116\116\112\115\58\47\47\103\105\115\116\46\103\105\116\104\117\98\117\115\101\114\99\111\110\116\101\110\116\46\99\111\109\47\109\101\111\122\111\110\101\89\84\47\98\102\48\51\55\100\102\102\57\102\48\97\55\48\48\49\55\51\48\52\100\100\100\54\55\102\100\99\100\51\55\48\47\114\97\119\47\101\49\52\101\55\52\102\52\50\53\98\48\54\48\100\102\53\50\51\51\52\51\99\102\51\48\98\55\56\55\48\55\52\101\98\51\99\53\100\50\47\97\114\99\101\117\115\37\50\53\50\48\120\37\50\53\50\48\102\108\121\37\50\53\50\48\50\37\50\53\50\48\111\98\102\108\117\99\97\116\111\114\39\41\44\116\114\117\101\41\41\40\41\10\10")() end)
+createOneClickButton("🏃", "Speed Hub X", 13, function() exec("https://raw.githubusercontent.com/AhmadV99/Speed-Hub-X/main/Speed%20Hub%20X.lua") end)
+createOneClickButton("⚡", "Walkspeed", 14, function() exec("https://raw.githubusercontent.com/Biasaemail/SCRIPT-ROBLOX-LUA-ME/refs/heads/main/WALKSPEED") end)
+
+-- Kategori: World & Server
+createCategoryLabel("World & Server", 20)
+createOneClickButton("🌀", "Bring/Fling Players", 21, function() exec("https://raw.githubusercontent.com/Bac0nHck/Scripts/main/BringFlingPlayers") end)
+createOneClickButton("💥", "Test Fling", 22, function() exec("https://raw.githubusercontent.com/Biasaemail/FOR-TESTING-SCRIPT/refs/heads/main/TEST%20FLING%20LOL.txt") end)
+createOneClickButton("텔", "Teleport J.9", 23, function() exec("https://raw.githubusercontent.com/Biasaemail/MY-SCRIPT-LUA-ROBLOX/refs/heads/main/TELEPROT%20J.929283938") end)
+createOneClickButton("📡", "Sigma Spy", 24, function() exec("https://raw.githubusercontent.com/depthso/Sigma-Spy/refs/heads/main/Main.lua") end)
+
+-- Kategori: Tools & Items
+createCategoryLabel("Tools & Items", 30)
+createOneClickButton("✨", "Copy Tools", 31, function() exec("https://raw.githubusercontent.com/Biasaemail/SCRIPT-ROBLOX-LUA-ME/refs/heads/main/COPY%20TOOLS%20V.1") end)
+createOneClickButton("🗑️", "Delete Tools", 32, function() exec("https://raw.githubusercontent.com/Biasaemail/SCRIPT-ROBLOX-LUA-ME/refs/heads/main/Detele%20Tools") end)
+createOneClickButton("🚗", "Fly Car", 33, function() exec("https://raw.githubusercontent.com/Biasaemail/SCRIPT-ROBLOX-LUA-ME/refs/heads/main/FLY%20CAR") end)
+createOneClickButton("📦", "Bring Unanchored Parts", 34, function() exec("https://raw.githubusercontent.com/Biasaemail/SCRIPT-ROBLOX-LUA-ME/refs/heads/main/ANTI%20BL%20LT2") end)
+
+-- Kategori: Game Specific Hubs
+createCategoryLabel("Hubs", 40)
+createOneClickButton("🔪", "Xhub MM2", 41, function() exec("https://raw.githubusercontent.com/Au0yX/Community/main/XhubMM2") end)
+createOneClickButton("🚀", "No Lag HUB", 42, function() execAsync("https://raw.githubusercontent.com/NoLag-id/No-Lag-HUB/refs/heads/main/Loader/LoaderV1.lua") end)
+
+-- ===================================================================
+-- ||                  LOGIKA BUKA/TUTUP & DRAG                     ||
+-- ===================================================================
+
+local isOpen = false
+ToggleButton.MouseButton1Click:Connect(function()
+    isOpen = not isOpen
+    local goalPosition = isOpen and UDim2.new(0, 15, 0.5, -200) or UDim2.new(0, -300, 0.5, -200)
+    local buttonText = isOpen and "‹" or "›"
+    TweenService:Create(MainFrame, Config.AnimationInfo, {Position = goalPosition}):Play()
+    TweenService:Create(ToggleButton, Config.AnimationInfo, {Text = buttonText}):Play()
+end)
+
+local function makeDraggable(guiObject, dragHandle)
+    local dragging = false
+    local dragStart, startPos
+    dragHandle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging, dragStart, startPos = true, input.Position, guiObject.Position
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) and dragging then
+            local delta = input.Position - dragStart
+            guiObject.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+end
+
+makeDraggable(MainFrame, Title)
+ScreenGui.Parent = PlayerGui
+wait(0.5)
+ToggleButton:DoClick()
+print("Project Nova GUI Loaded Successfully.")
