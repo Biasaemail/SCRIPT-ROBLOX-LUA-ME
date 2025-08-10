@@ -1,0 +1,70 @@
+-- =================================================================
+-- BAGIAN 1: MENJALANKAN SKRIP PERTAMA
+-- =================================================================
+-- Skrip ini akan dieksekusi sesuai permintaan Anda.
+pcall(function()
+    loadstring(game:HttpGet("https://rawscripts.net/raw/Pet-Simulator-99!-NEW-Walkspeed-Changer-9439", true))()
+end)
+
+-- Memberi jeda singkat untuk memastikan skrip di atas sempat berjalan
+task.wait(1)
+
+-- =================================================================
+-- BAGIAN 2: MENJALANKAN SKRIP KEDUA (VERSI MODIFIKASI)
+-- Skrip ini akan memastikan WalkSpeed Anda selalu 100, bahkan setelah mati/reset.
+-- =================================================================
+
+-- Dapatkan service dan pemain lokal
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+-- Pastikan variabel 'player' sudah terisi
+if not player then
+	repeat task.wait() until player
+end
+
+-- Variabel untuk kecepatan yang Anda inginkan (sebagai "pengunci")
+local desiredSpeed = 100
+
+-- Fungsi utama untuk mengatur dan "mengunci" kecepatan.
+local function applySpeedLock(character)
+	-- Tunggu hingga Humanoid ada di dalam karakter untuk memastikan skrip tidak error
+	local humanoid = character:WaitForChild("Humanoid")
+
+	if humanoid then
+		-- Langsung atur WalkSpeed ke nilai yang diinginkan saat karakter muncul
+		humanoid.WalkSpeed = desiredSpeed
+		print("WalkSpeed dikunci ke: " .. desiredSpeed)
+
+		-- Buat koneksi "pengawas".
+        -- Jika ada yang mengubah WalkSpeed (game, Skrip Pertama, dll),
+        -- fungsi ini akan langsung mengembalikannya ke 100.
+		local connection
+		connection = humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+			if humanoid.WalkSpeed ~= desiredSpeed then
+				humanoid.WalkSpeed = desiredSpeed
+			end
+		end)
+        
+        -- Praktik yang baik: Hancurkan koneksi saat karakter mati untuk mencegah kebocoran memori
+        humanoid.Destroying:Connect(function()
+            if connection then
+                connection:Disconnect()
+            end
+        end)
+	end
+end
+
+-- --- LOGIKA UTAMA UNTUK PERSISTENSI ---
+
+-- 1. Hubungkan fungsi applySpeedLock ke event 'CharacterAdded'.
+--    Ini memastikan fungsi "pengunci kecepatan" dijalankan setiap kali karakter respawn.
+player.CharacterAdded:Connect(applySpeedLock)
+
+-- 2. Jalankan fungsi untuk karakter yang sudah ada saat skrip dieksekusi.
+--    Ini memastikan skrip langsung bekerja tanpa harus menunggu Anda mati terlebih dahulu.
+if player.Character then
+	applySpeedLock(player.Character)
+end
+
+print("Skrip pengunci WalkSpeed ke 100 telah aktif dan akan berjalan terus-menerus.")
