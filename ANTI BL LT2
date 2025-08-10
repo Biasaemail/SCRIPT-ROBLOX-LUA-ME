@@ -1,0 +1,59 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local success, ManualRespawn = pcall(function() return ReplicatedStorage.Interaction.ManualRespawn end)
+local success, SendUserNotice = pcall(function() return ReplicatedStorage.Notices.SendUserNotice end)
+local success, Verify = pcall(function() return ReplicatedStorage.Interaction.Verify end)
+
+local BlockedMethods = {
+    [ManualRespawn]  = { FireServer = true },
+    [SendUserNotice] = { Fire = true },
+    [Verify]         = { FireServer = true },
+}
+
+local mt = getrawmetatable(game)
+if not mt then
+    return
+end
+
+local oldNamecall = mt.__namecall
+local oldIndex = mt.__index
+local hook_key = newproxy(true)
+
+setreadonly(mt, false)
+
+local function poison(...) end
+
+mt.__namecall = newcclosure(function(self, ...)
+    local method = getnamecallmethod()
+    if BlockedMethods[self] and BlockedMethods[self][method] then
+        return
+    end
+    return oldNamecall(self, ...)
+end)
+
+mt.__index = newcclosure(function(self, key)
+    if BlockedMethods[self] and BlockedMethods[self][key] then
+        return poison
+    end
+    return oldIndex(self, key)
+end)
+
+local newNamecallHook = mt.__namecall
+mt.KEY = hook_key
+setreadonly(mt, true)
+
+task.spawn(function()
+    while task.wait(5) do
+        local current_mt = getrawmetatable(game)
+        if current_mt.__namecall ~= newNamecallHook or not current_mt.KEY then
+            setreadonly(current_mt, false)
+            current_mt.__namecall = newNamecallHook
+            current_mt.__index = mt.__index
+            current_mt.KEY = hook_key
+            setreadonly(current_mt, true)
+        end
+    end
+end)
+
+print("[HOOK] Anti-remote & Anti-notifikasi aktif. Target: ManualRespawn, SendUserNotice, Verify.")
+
