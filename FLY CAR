@@ -1,0 +1,273 @@
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+-- Variables
+local Player = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local Mouse = Player:GetMouse()
+local Flying = false
+local Speed = 200
+local CurrentVehicle = nil
+local Direction = Vector3.new(0, 0, 0)
+local ActiveKeys = {} -- Track active keys/buttons
+
+-- GUI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Parent = Player:WaitForChild("PlayerGui")
+
+local Frame = Instance.new("Frame")
+Frame.Size = UDim2.new(0.4, 0, 0.3, 0)
+Frame.Position = UDim2.new(0.3, 0, 0.65, 0)
+Frame.BackgroundTransparency = 1
+Frame.Parent = ScreenGui
+
+-- Function to create buttons
+local function createButton(text, pos)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0.2, 0, 0.2, 0)
+    btn.Position = pos
+    btn.Text = text
+    btn.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextScaled = true
+    btn.Parent = Frame
+    return btn
+end
+
+-- Create buttons
+local toggleBtn = createButton("Toggle Fly", UDim2.new(0, 0, 0, 0))
+toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+
+local upBtn = createButton("Up", UDim2.new(0.4, 0, 0, 0))
+local downBtn = createButton("Down", UDim2.new(0.4, 0, 0.4, 0))
+local leftBtn = createButton("Left", UDim2.new(0.2, 0, 0.2, 0))
+local rightBtn = createButton("Right", UDim2.new(0.6, 0, 0.2, 0))
+local forwardBtn = createButton("Forward", UDim2.new(0.4, 0, 0.2, 0))
+local backwardBtn = createButton("Back", UDim2.new(0.4, 0, 0.6, 0))
+
+-- Speed input
+local speedBox = Instance.new("TextBox")
+speedBox.Size = UDim2.new(0.2, 0, 0.1, 0)
+speedBox.Position = UDim2.new(0.4, 0, 0.8, 0)
+speedBox.Text = "200"
+speedBox.BackgroundColor3 = Color3.new(1, 1, 1)
+speedBox.Parent = Frame
+
+-- Function to reset direction
+local function resetDirection()
+    Direction = Vector3.new(0, 0, 0)
+    for _, key in pairs(ActiveKeys) do
+        if key.active then
+            Direction = Direction + key.vector
+        end
+    end
+end
+
+-- Main flying function
+local function getVehicle()
+    local char = Player.Character
+    if not char then return nil end
+    
+    local humanoid = char:FindFirstChild("Humanoid")
+    if not humanoid then return nil end
+    
+    if humanoid.SeatPart then
+        return humanoid.SeatPart.Parent
+    end
+    return nil
+end
+
+-- Store original camera CFrame
+local originalCameraType
+local originalCameraFocus
+local function saveCameraState()
+    originalCameraType = Camera.CameraType
+    originalCameraFocus = Camera.Focus
+end
+
+local function restoreCameraState()
+    if originalCameraType then
+        Camera.CameraType = originalCameraType
+    end
+end
+
+-- Improved button handling with unique identifiers
+local function handleButton(btn, vec, id)
+    -- Create a tracking entry for this control
+    ActiveKeys[id] = {active = false, vector = vec}
+    
+    btn.MouseButton1Down:Connect(function()
+        ActiveKeys[id].active = true
+        resetDirection()
+        btn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+    end)
+    
+    btn.MouseButton1Up:Connect(function()
+        ActiveKeys[id].active = false
+        resetDirection()
+        btn.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+    end)
+    
+    -- Handle when mouse leaves button while pressed
+    btn.MouseLeave:Connect(function()
+        if ActiveKeys[id].active then
+            ActiveKeys[id].active = false
+            resetDirection()
+            btn.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+        end
+    end)
+end
+
+-- Keyboard controls with improved handling
+local keyboardControls = {
+    [Enum.KeyCode.W] = {vector = Vector3.new(0, 0, -1), id = "Forward"},
+    [Enum.KeyCode.S] = {vector = Vector3.new(0, 0, 1), id = "Backward"},
+    [Enum.KeyCode.A] = {vector = Vector3.new(-1, 0, 0), id = "Left"},
+    [Enum.KeyCode.D] = {vector = Vector3.new(1, 0, 0), id = "Right"},
+    [Enum.KeyCode.E] = {vector = Vector3.new(0, 1, 0), id = "Up"},
+    [Enum.KeyCode.Q] = {vector = Vector3.new(0, -1, 0), id = "Down"}
+}
+
+-- Initialize keyboard controls in ActiveKeys
+for _, control in pairs(keyboardControls) do
+    ActiveKeys[control.id] = {active = false, vector = control.vector}
+end
+
+UserInputService.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        local control = keyboardControls[input.KeyCode]
+        if control then
+            ActiveKeys[control.id].active = true
+            resetDirection()
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        local control = keyboardControls[input.KeyCode]
+        if control then
+            ActiveKeys[control.id].active = false
+            resetDirection()
+        end
+    end
+end)
+
+-- Add button handlers with unique IDs
+handleButton(upBtn, Vector3.new(0, 1, 0), "UpBtn")
+handleButton(downBtn, Vector3.new(0, -1, 0), "DownBtn")
+handleButton(leftBtn, Vector3.new(-1, 0, 0), "LeftBtn")
+handleButton(rightBtn, Vector3.new(1, 0, 0), "RightBtn")
+handleButton(forwardBtn, Vector3.new(0, 0, -1), "ForwardBtn")
+handleButton(backwardBtn, Vector3.new(0, 0, 1), "BackBtn")
+
+local lastCF = CFrame.new()
+local function updateFlight()
+    if not Flying then return end
+    
+    CurrentVehicle = getVehicle()
+    if not CurrentVehicle then return end
+    
+    local primary = CurrentVehicle:FindFirstChild("PrimaryPart") or 
+                   CurrentVehicle:FindFirstChild("Body") or 
+                   CurrentVehicle:FindFirstChildWhichIsA("BasePart")
+    
+    if primary then
+        -- Disable vehicle physics
+        for _, part in pairs(CurrentVehicle:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+            if part:IsA("BodyGyro") or part:IsA("BodyVelocity") or part:IsA("BodyPosition") then
+                part:Destroy()
+            end
+        end
+        
+        -- Create new physics handlers
+        if not primary:FindFirstChild("FlyGyro") then
+            local gyro = Instance.new("BodyGyro")
+            gyro.Name = "FlyGyro"
+            gyro.Parent = primary
+            gyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+            gyro.P = 1000
+            gyro.D = 50
+        end
+        
+        if not primary:FindFirstChild("FlyVel") then
+            local vel = Instance.new("BodyVelocity")
+            vel.Name = "FlyVel"
+            vel.Parent = primary
+            vel.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+            vel.P = 1000
+        end
+        
+        -- Get movement direction relative to camera
+        local cf = Camera.CFrame
+        local movement = Vector3.new(0, 0, 0)
+        
+        if Direction.X ~= 0 or Direction.Z ~= 0 then
+            local lookVector = cf.LookVector
+            local rightVector = cf.RightVector
+            
+            movement = movement + lookVector * Direction.Z
+            movement = movement + rightVector * Direction.X
+        end
+        
+        movement = movement + Vector3.new(0, Direction.Y, 0)
+        
+        if movement.Magnitude > 0 then
+            movement = movement.Unit * Speed
+        end
+        
+        -- Update vehicle
+        local gyro = primary.FlyGyro
+        local vel = primary.FlyVel
+        
+        local targetCF = CFrame.lookAt(primary.Position, primary.Position + cf.LookVector)
+        lastCF = lastCF:Lerp(targetCF, 0.1)
+        
+        gyro.CFrame = lastCF
+        vel.Velocity = movement
+        
+        Camera.CameraType = Enum.CameraType.Custom
+        local vehiclePos = primary.Position
+        Camera.CFrame = CFrame.new(vehiclePos - (cf.LookVector * 20) + Vector3.new(0, 5, 0), vehiclePos)
+    end
+end
+
+-- Toggle button handler
+toggleBtn.MouseButton1Click:Connect(function()
+    Flying = not Flying
+    toggleBtn.BackgroundColor3 = Flying and Color3.fromRGB(255, 0, 0) or Color3.fromRGB(0, 255, 0)
+    
+    if Flying then
+        saveCameraState()
+    else
+        restoreCameraState()
+        local vehicle = getVehicle()
+        if vehicle then
+            for _, part in pairs(vehicle:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                end
+                if part.Name == "FlyGyro" or part.Name == "FlyVel" then
+                    part:Destroy()
+                end
+            end
+        end
+        -- Reset all controls when flying is disabled
+        for id, _ in pairs(ActiveKeys) do
+            ActiveKeys[id].active = false
+        end
+        resetDirection()
+    end
+end)
+
+speedBox.FocusLost:Connect(function()
+    Speed = tonumber(speedBox.Text) or Speed
+end)
+
+RunService.Heartbeat:Connect(updateFlight)
