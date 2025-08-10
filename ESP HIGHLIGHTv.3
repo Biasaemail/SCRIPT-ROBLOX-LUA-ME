@@ -1,0 +1,215 @@
+-- LocalScript (Disimpan di StarterPlayerScripts atau sejenisnya)
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService") -- Masih mungkin diperlukan untuk task.defer atau wait
+local Teams = game:GetService("Teams")
+local LocalPlayer = Players.LocalPlayer
+
+-- ============== KONFIGURASI ==============
+local ENEMY_COLOR = Color3.fromRGB(255, 0, 0)       -- Merah untuk musuh
+local NEUTRAL_COLOR = Color3.fromRGB(255, 255, 0)   -- Kuning untuk netral/FFA
+local OUTLINE_COLOR = Color3.fromRGB(255, 255, 255) -- Outline putih
+local FILL_TRANSPARENCY = 0.5
+local OUTLINE_TRANSPARENCY = 0
+local HIGHLIGHT_NAME = "PlayerESP_Highlight_v2" -- Nama unik untuk instance Highlight
+-- =========================================
+
+-- Tabel untuk menyimpan koneksi event per pemain agar bisa dibersihkan
+local playerConnections = {}
+
+-- Fungsi untuk cek apakah sistem tim aktif digunakan
+local function areTeamsActive()
+	-- Anggap aktif jika ada tim yang terdaftar di service Teams
+	return #Teams:GetTeams() > 0
+end
+
+-- Fungsi cerdas untuk menentukan apakah pemain adalah target yang valid untuk di-highlight
+local function isHighlightTarget(player)
+	-- 1. Bukan Local Player
+	if not player or player == LocalPlayer then return false end
+
+	-- 2. Punya Karakter
+	local character = player.Character
+	if not character then return false end
+
+	-- 3. Punya Humanoid yang hidup
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	-- Gunakan GetState untuk cek kematian yang lebih akurat
+	if not humanoid or humanoid:GetState() == Enum.HumanoidStateType.Dead then return false end
+
+	-- 4. Logika Tim
+	if areTeamsActive() then
+		local localPlayerTeam = LocalPlayer.Team
+		local targetPlayerTeam = player.Team
+		-- Hanya highlight jika kedua pemain punya tim DAN timnya berbeda
+		if localPlayerTeam and targetPlayerTeam and localPlayerTeam ~= targetPlayerTeam then
+			return true -- Ini adalah musuh
+		else
+			return false -- Satu tim atau salah satu/keduanya tidak punya tim (dalam mode tim)
+		end
+	else
+		-- Jika tidak ada sistem tim aktif, highlight semua pemain lain yang valid
+		return true
+	end
+end
+
+-- Fungsi utama untuk mengelola highlight (membuat, update, hapus) untuk SATU pemain
+local function updatePlayerHighlight(player)
+	local character = player.Character -- Dapatkan karakter saat ini (bisa nil)
+	local existingHighlight = character and character:FindFirstChild(HIGHLIGHT_NAME)
+
+	if isHighlightTarget(player) then
+		-- Target valid -> pastikan highlight ada dan terkonfigurasi
+		if not character then return end -- Perlu karakter untuk memasang highlight
+
+		if not existingHighlight then
+			existingHighlight = Instance.new("Highlight")
+			existingHighlight.Name = HIGHLIGHT_NAME
+			existingHighlight.Adornee = character -- Targetkan ke model karakter
+			existingHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop -- Selalu terlihat
+			existingHighlight.Parent = character -- Simpan di karakter (mudah ditemukan & dibersihkan)
+		end
+
+		-- Tentukan warna berdasarkan status tim (jika relevan)
+		local isEnemy = areTeamsActive() and player.Team ~= LocalPlayer.Team
+		existingHighlight.FillColor = isEnemy and ENEMY_COLOR or NEUTRAL_COLOR
+		existingHighlight.OutlineColor = OUTLINE_COLOR
+		existingHighlight.FillTransparency = FILL_TRANSPARENCY
+		existingHighlight.OutlineTransparency = OUTLINE_TRANSPARENCY
+		existingHighlight.Enabled = true -- Pastikan aktif
+
+	else
+		-- Target tidak valid -> hapus highlight jika ada
+		if existingHighlight then
+			existingHighlight:Destroy()
+		end
+	end
+end
+
+-- Fungsi untuk menyiapkan listener event untuk pemain baru
+local function setupPlayerConnections(player)
+	if playerConnections[player] then return end -- Sudah di-setup, jangan duplikat
+
+	local connections = {}
+	playerConnections[player] = connections
+
+	-- Saat karakter pemain muncul
+	connections.CharacterAdded = player.CharacterAdded:Connect(function(character)
+		-- Tunggu sebentar agar Humanoid siap
+		task.defer(updatePlayerHighlight, player) -- Gunakan task.defer agar lebih aman
+
+		local humanoid = character:WaitForChild("Humanoid", 2) -- Tunggu humanoid max 2 detik
+		if humanoid then
+			-- Saat humanoid mati
+			connections.Died = humanoid.Died:Connect(function()
+				-- Update highlight (seharusnya akan menghapusnya karena isHighlightTarget jadi false)
+				task.defer(updatePlayerHighlight, player)
+				-- Koneksi Died akan otomatis terputus saat humanoid dihancurkan (biasanya saat CharacterRemoving)
+                -- Tapi kita bisa putuskan manual di CharacterRemoving jika perlu.
+			end)
+		end
+	end)
+
+	-- Saat karakter pemain dihapus
+	connections.CharacterRemoving = player.CharacterRemoving:Connect(function(character)
+        -- Putuskan koneksi Died secara eksplisit jika masih ada
+        if connections.Died and connections.Died.Connected then
+             connections.Died:Disconnect()
+             connections.Died = nil
+        end
+		-- Update highlight (akan menghapusnya karena karakter hilang)
+		-- Kita perlu sedikit delay atau defer agar proses penghapusan karakter selesai
+		task.defer(updatePlayerHighlight, player)
+	end)
+
+	-- Saat tim pemain berubah
+    -- Periksa apakah properti Team ada sebelum menghubungkan event
+    if player:FindFirstChild("Team") or player:IsA("Player") then -- Pastikan objek punya properti Team
+	    connections.TeamChanged = player:GetPropertyChangedSignal("Team"):Connect(function()
+		    updatePlayerHighlight(player)
+	    end)
+    end
+
+	-- Panggil update awal jika pemain sudah punya karakter saat di-setup
+	if player.Character then
+		task.defer(updatePlayerHighlight, player) -- Defer untuk keamanan
+        local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid and humanoid:GetState() ~= Enum.HumanoidStateType.Dead then
+             -- Jika sudah ada karakter dan hidup, pasang juga listener Died
+             connections.Died = humanoid.Died:Connect(function()
+                 task.defer(updatePlayerHighlight, player)
+             end)
+        end
+	end
+end
+
+-- Fungsi untuk membersihkan semua koneksi event untuk pemain
+local function cleanupPlayerConnections(player)
+	if not playerConnections[player] then return end
+
+	for _, connection in pairs(playerConnections[player]) do
+		if connection and typeof(connection) == "RBXScriptConnection" and connection.Connected then
+			connection:Disconnect()
+		end
+	end
+	playerConnections[player] = nil -- Hapus entri dari tabel
+
+	-- Pastikan highlight juga dihapus sebagai langkah terakhir
+	local character = player.Character -- Karakter mungkin masih ada atau sudah nil
+	if character then
+		local highlight = character:FindFirstChild(HIGHLIGHT_NAME)
+		if highlight then
+			highlight:Destroy()
+		end
+	end
+end
+
+-- Fungsi untuk mengupdate highlight SEMUA pemain (berguna saat tim LocalPlayer berubah)
+local function updateAllPlayersHighlights()
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer then
+			updatePlayerHighlight(player)
+		end
+	end
+end
+
+-- ----- KONEKSI EVENT UTAMA -----
+
+-- Saat tim LocalPlayer berubah, evaluasi ulang semua pemain
+local localPlayerTeamChangedConn = LocalPlayer:GetPropertyChangedSignal("Team"):Connect(updateAllPlayersHighlights)
+
+-- Proses pemain yang sudah ada saat skrip dimulai
+for _, player in ipairs(Players:GetPlayers()) do
+	if player ~= LocalPlayer then
+		setupPlayerConnections(player)
+		-- Tidak perlu panggil updatePlayerHighlight di sini, sudah ditangani di dalam setupPlayerConnections
+	end
+end
+
+-- Saat pemain baru bergabung
+local playerAddedConn = Players.PlayerAdded:Connect(function(player)
+	-- Beri sedikit waktu agar properti pemain (seperti Team) sempat tereplikasi
+	task.wait(0.5)
+	setupPlayerConnections(player)
+end)
+
+-- Saat pemain keluar
+local playerRemovingConn = Players.PlayerRemoving:Connect(function(player)
+	cleanupPlayerConnections(player)
+end)
+
+-- ----- Pembersihan Saat Skrip Dihancurkan -----
+script.Destroying:Connect(function()
+	print("Highlight script cleaning up...")
+	if playerAddedConn and playerAddedConn.Connected then playerAddedConn:Disconnect() end
+	if playerRemovingConn and playerRemovingConn.Connected then playerRemovingConn:Disconnect() end
+	if localPlayerTeamChangedConn and localPlayerTeamChangedConn.Connected then localPlayerTeamChangedConn:Disconnect() end
+
+	-- Bersihkan koneksi untuk semua pemain yang masih ada
+	for player, _ in pairs(playerConnections) do
+		cleanupPlayerConnections(player)
+	end
+	print("Highlight script cleanup complete.")
+end)
+
+print("Event-Driven Player Highlighting Script Initialized (v2)")
