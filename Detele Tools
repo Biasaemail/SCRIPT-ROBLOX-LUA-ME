@@ -1,0 +1,108 @@
+local Players = game:GetService("Players")
+local Mouse = Players.LocalPlayer:GetMouse()
+local Player = Players.LocalPlayer
+
+-- GUI Creation
+local ScreenGui = Instance.new("ScreenGui")
+local MainFrame = Instance.new("Frame")
+local Title = Instance.new("TextLabel")
+local DeleteToolBtn = Instance.new("TextButton")
+
+-- GUI Properties
+ScreenGui.Name = "DeleteToolGUI"
+ScreenGui.Parent = Player:WaitForChild("PlayerGui")
+ScreenGui.ResetOnSpawn = false
+
+MainFrame.Name = "MainFrame"
+MainFrame.Parent = ScreenGui
+MainFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+MainFrame.BorderSizePixel = 0
+MainFrame.Position = UDim2.new(0, 10, 0.3, 0)
+MainFrame.Size = UDim2.new(0, 180, 0, 100)
+MainFrame.Active = true
+MainFrame.Draggable = true
+
+Title.Name = "Title"
+Title.Parent = MainFrame
+Title.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+Title.BorderSizePixel = 0
+Title.Size = UDim2.new(1, 0, 0, 30)
+Title.Font = Enum.Font.SourceSansBold
+Title.Text = "Delete Tool"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 16
+
+DeleteToolBtn.Name = "DeleteToolBtn"
+DeleteToolBtn.Parent = MainFrame
+DeleteToolBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+DeleteToolBtn.BorderSizePixel = 0
+DeleteToolBtn.Position = UDim2.new(0.1, 0, 0.5, 0)
+DeleteToolBtn.Size = UDim2.new(0.8, 0, 0, 30)
+DeleteToolBtn.Font = Enum.Font.SourceSans
+DeleteToolBtn.Text = "Activate Delete Tool"
+DeleteToolBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+DeleteToolBtn.TextSize = 14
+
+-- Delete Tool Function
+local function CreateDeleteTool()
+    local tool = Instance.new("Tool")
+    tool.Name = "DeleteTool"
+    tool.RequiresHandle = false
+    tool.CanBeDropped = true
+    
+    tool.Equipped:Connect(function()
+        Mouse.Icon = "rbxasset://SystemCursors/Forbidden"
+    end)
+    
+    tool.Unequipped:Connect(function()
+        Mouse.Icon = ""
+    end)
+    
+    tool.Activated:Connect(function()
+        local target = Mouse.Target
+        if target then
+            local success, err = pcall(function()
+                -- Bypass locked objects
+                if target.Locked then
+                    target.Locked = false
+                end
+                -- Attempt to delete the object
+                target:Destroy()
+            end)
+            
+            if not success then
+                -- Provide feedback if deletion fails
+                game:GetService("StarterGui"):SetCore("SendNotification", {
+                    Title = "Delete Failed",
+                    Text = "Cannot delete this object.",
+                    Duration = 2
+                })
+            end
+        end
+    end)
+    
+    return tool
+end
+
+-- Equip Delete Tool
+local function EquipDeleteTool()
+    -- Ensure inventory items are not removed
+    for _, tool in pairs(Player.Backpack:GetChildren()) do
+        if tool.Name == "DeleteTool" then
+            tool:Destroy()
+        end
+    end
+    
+    local deleteTool = CreateDeleteTool()
+    deleteTool.Parent = Player.Backpack
+end
+
+-- Button Connection
+DeleteToolBtn.MouseButton1Click:Connect(EquipDeleteTool)
+
+-- Initialization Notification
+game:GetService("StarterGui"):SetCore("SendNotification", {
+    Title = "Delete Tool Loaded",
+    Text = "Press the button to activate the Delete Tool.",
+    Duration = 3
+})
