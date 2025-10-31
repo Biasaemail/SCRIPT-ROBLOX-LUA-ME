@@ -1,0 +1,468 @@
+--[[
+    Skrip Auto-Pathfinding dengan GUI Kontrol
+    - Ditingkatkan dengan GUI yang dapat di-drag, minimize, dan memiliki tombol ON/OFF serta LOOP.
+    - Logika pathfinding inti tetap sama sesuai permintaan.
+]]
+
+-- Services
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+-- Player & Character
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local hrp = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid")
+
+-- =================================================================
+-- CORE PATHFINDING LOGIC (UNCHANGED AS REQUESTED)
+-- =================================================================
+
+-- Daftar checkpoint (urutan penting!)
+local checkpoints = {
+    Vector3.new(-417.4703369140625, 263.22259521484375, 786.6296997070312), -- CP1
+    Vector3.new(-336.950256, 400.450226, 524.400024), -- CP2
+    Vector3.new(294.808685, 442.878571, 494.531097), -- CP3
+    Vector3.new(320.641327, 502.428497, 344.058807), -- CP4
+    Vector3.new(52.3581963, 243.802551, 104.851883),  -- CP4b
+    Vector3.new(232.33493, 327.657196, -144.600006), -- CP5
+    Vector3.new(-565.315063, 863.401855, -580.33844), -- CP5b (NEW)
+    Vector3.new(-615.762634, 905.040649, -541.110474) -- Summit
+}
+
+-- Lokasi final walk (setelah summit)
+local finalWalkPosition = Vector3.new(-622.369629, 902.439697, -493.9375)
+
+-- === KONFIGURASI ===
+local TOTAL_DURATION = 48
+local MAX_SPEED = 24
+local MIN_SEGMENT_DURATION = 0.1
+local COMPLETION_THRESHOLD = 50 -- Jarak untuk menganggap sudah sampai checkpoint (stud)
+
+-- Durasi khusus per checkpoint (gunakan indeks checkpoint tujuan)
+local customDurations = {
+    [2] = 7,  -- CP1→CP2
+    [4] = 7.2,   -- CP3→CP4
+    [5] = 9.8,  -- CP4→CP4b
+    [6] = 10,  -- CP4b→CP5
+    [7] = 10,  -- CP5→CP5b (NEW)
+    [8] = 5.9   -- CP5b→Summit
+}
+
+-- =================================================================
+-- SCRIPT CONTROL & STATE MANAGEMENT (NEW)
+-- =================================================================
+local isScriptActive = false
+local isLoopActive = false
+local mainThread = nil
+local currentTween = nil
+
+-- =================================================================
+-- GUI CREATION & FUNCTIONALITY (NEW)
+-- =================================================================
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "PathfinderGUI"
+gui.Parent = player:WaitForChild("PlayerGui")
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- Main Frame (Draggable Window)
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 200, 0, 110)
+mainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+mainFrame.BorderColor3 = Color3.fromRGB(85, 85, 105)
+mainFrame.BorderSizePixel = 1
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = gui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 8)
+corner.Parent = mainFrame
+
+-- Title Bar
+local titleBar = Instance.new("Frame")
+titleBar.Name = "TitleBar"
+titleBar.Size = UDim2.new(1, 0, 0, 30)
+titleBar.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+titleBar.BorderSizePixel = 0
+titleBar.Parent = mainFrame
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 8)
+titleCorner.Parent = titleBar
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Name = "TitleLabel"
+titleLabel.Size = UDim2.new(1, -30, 1, 0)
+titleLabel.Position = UDim2.new(0, 0, 0, 0)
+titleLabel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.BackgroundTransparency = 1
+titleLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+titleLabel.Font = Enum.Font.SourceSansBold
+titleLabel.Text = "  Pathfinder"
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.Parent = titleBar
+
+-- Minimize Button
+local minimizeButton = Instance.new("TextButton")
+minimizeButton.Name = "MinimizeButton"
+minimizeButton.Size = UDim2.new(0, 20, 0, 20)
+minimizeButton.Position = UDim2.new(1, -25, 0.5, -10)
+minimizeButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+minimizeButton.BackgroundTransparency = 1
+minimizeButton.TextColor3 = Color3.fromRGB(200, 200, 200)
+minimizeButton.Font = Enum.Font.SourceSansBold
+minimizeButton.Text = "—"
+minimizeButton.Parent = titleBar
+
+-- Container for other buttons
+local contentFrame = Instance.new("Frame")
+contentFrame.Name = "ContentFrame"
+contentFrame.Size = UDim2.new(1, 0, 1, -30)
+contentFrame.Position = UDim2.new(0, 0, 0, 30)
+contentFrame.BackgroundTransparency = 1
+contentFrame.Parent = mainFrame
+
+-- ON/OFF Button
+local onOffButton = Instance.new("TextButton")
+onOffButton.Name = "OnOffButton"
+onOffButton.Size = UDim2.new(0, 80, 0, 35)
+onOffButton.Position = UDim2.new(0.5, -85, 0.5, -17.5)
+onOffButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50) -- Initial OFF color
+onOffButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+onOffButton.Font = Enum.Font.SourceSansBold
+onOffButton.Text = "OFF"
+onOffButton.Parent = contentFrame
+local onOffCorner = Instance.new("UICorner", onOffButton)
+onOffCorner.CornerRadius = UDim.new(0, 6)
+
+-- LOOP Button
+local loopButton = Instance.new("TextButton")
+loopButton.Name = "LoopButton"
+loopButton.Size = UDim2.new(0, 80, 0, 35)
+loopButton.Position = UDim2.new(0.5, 5, 0.5, -17.5)
+loopButton.BackgroundColor3 = Color3.fromRGB(80, 80, 90) -- Initial OFF color
+loopButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+loopButton.Font = Enum.Font.SourceSansBold
+loopButton.Text = "LOOP"
+loopButton.Parent = contentFrame
+local loopCorner = Instance.new("UICorner", loopButton)
+loopCorner.CornerRadius = UDim.new(0, 6)
+
+-- GUI LOGIC
+local isMinimized = false
+local originalSize = mainFrame.Size
+
+local function updateOnOffButton()
+    if isScriptActive then
+        onOffButton.Text = "ON"
+        onOffButton.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+    else
+        onOffButton.Text = "OFF"
+        onOffButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+    end
+end
+
+local function updateLoopButton()
+    if isLoopActive then
+        loopButton.BackgroundColor3 = Color3.fromRGB(50, 150, 220)
+    else
+        loopButton.BackgroundColor3 = Color3.fromRGB(80, 80, 90)
+    end
+end
+
+local function toggleMinimize()
+    isMinimized = not isMinimized
+    if isMinimized then
+        contentFrame.Visible = false
+        titleLabel.Visible = false
+        mainFrame.Size = UDim2.new(0, 30, 0, 30)
+        minimizeButton.Text = "□"
+        minimizeButton.Position = UDim2.new(0.5, -10, 0.5, -10)
+    else
+        contentFrame.Visible = true
+        titleLabel.Visible = true
+        mainFrame.Size = originalSize
+        minimizeButton.Text = "—"
+        minimizeButton.Position = UDim2.new(1, -25, 0.5, -10)
+    end
+end
+
+local function makeDraggable(guiObject)
+    local dragging
+    local dragInput
+    local dragStart
+    local startPos
+
+    guiObject.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = guiObject.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    guiObject.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            if dragging then
+                local delta = input.Position - dragStart
+                guiObject.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            end
+        end
+    end)
+
+    guiObject.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+end
+
+makeDraggable(mainFrame)
+makeDraggable(titleBar) -- Also allow dragging from title bar
+
+-- =================================================================
+-- MAIN SCRIPT FUNCTIONS (WRAPPED)
+-- =================================================================
+
+local function stopPath()
+    if mainThread then
+        task.cancel(mainThread)
+        mainThread = nil
+    end
+    if currentTween then
+        currentTween:Cancel()
+        currentTween = nil
+    end
+    
+    -- Restore character state just in case
+    if hrp and hrp.Parent then
+        hrp.Anchored = false
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true -- Simple restoration
+            end
+        end
+    end
+    
+    print("🛑 Proses dihentikan oleh pengguna.")
+end
+
+local function startPath()
+    if mainThread then
+        warn("Proses sudah berjalan.")
+        return
+    end
+
+    mainThread = task.spawn(function()
+        -- Re-fetch character components in case of respawn
+        character = player.Character or player.CharacterAdded:Wait()
+        hrp = character:WaitForChild("HumanoidRootPart")
+        humanoid = character:WaitForChild("Humanoid")
+
+        -- === CARI CHECKPOINT TERDEKAT ===
+        local function findNearestCheckpoint()
+            local currentPosition = hrp.Position
+            local nearestIndex = 1
+            local minDistance = (currentPosition - checkpoints[1]).Magnitude
+
+            for i = 2, #checkpoints do
+                local dist = (currentPosition - checkpoints[i]).Magnitude
+                if dist < minDistance then
+                    minDistance = dist
+                    nearestIndex = i
+                end
+            end
+            return nearestIndex, minDistance
+        end
+
+        local nearestIndex, minDistance = findNearestCheckpoint()
+        local startIndex
+        if minDistance <= COMPLETION_THRESHOLD then
+            startIndex = nearestIndex + 1
+            print(string.format("📍 Dekat dengan CP%d (%.1f stud) → Mulai dari CP%d", nearestIndex, minDistance, startIndex))
+        else
+            startIndex = nearestIndex
+            print(string.format("📍 Belum sampai CP%d (%.1f stud) → Pergi ke CP%d dulu", nearestIndex, minDistance, startIndex))
+        end
+
+        if startIndex > #checkpoints then
+            warn("✅ Kamu sudah sampai Summit! Tidak ada checkpoint berikutnya.")
+            if not isLoopActive then
+                isScriptActive = false
+                updateOnOffButton()
+            end
+            return
+        end
+
+        -- === SIAPKAN SEGMENTASI ===
+        local function prepareSegments()
+            local segments = {}
+            local totalDistance = 0
+            local currentPos = hrp.Position
+
+            local firstTarget = checkpoints[startIndex]
+            local firstDist = (currentPos - firstTarget).Magnitude
+            table.insert(segments, {from = currentPos, to = firstTarget, distance = firstDist, checkpointIndex = startIndex})
+            totalDistance += firstDist
+
+            for i = startIndex + 1, #checkpoints do
+                local dist = (checkpoints[i-1] - checkpoints[i]).Magnitude
+                table.insert(segments, {from = checkpoints[i-1], to = checkpoints[i], distance = dist, checkpointIndex = i})
+                totalDistance += dist
+            end
+            return segments, totalDistance
+        end
+
+        local segments, totalDistance = prepareSegments()
+        print(string.format("📏 Total jarak sisa: %.1f stud | %d segmen", totalDistance, #segments))
+
+        -- === FUNGSI GERAK ===
+        local function moveTo(position, duration)
+            duration = math.max(duration, MIN_SEGMENT_DURATION)
+            local direction = (position - hrp.Position).Unit
+            local goalCFrame = CFrame.new(position) * CFrame.Angles(0, math.atan2(direction.X, direction.Z), 0)
+            local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut)
+            
+            currentTween = TweenService:Create(hrp, tweenInfo, {CFrame = goalCFrame})
+            currentTween:Play()
+            currentTween.Completed:Wait()
+            currentTween = nil
+        end
+
+        local function walkTo(position)
+            humanoid:MoveTo(position)
+            local conn
+            local timeout = tick() + 10
+            repeat
+                task.wait(0.1)
+            until (hrp.Position - position).Magnitude < 5 or tick() > timeout
+        end
+
+        -- === HITUNG DURASI SEGMEN ===
+        local function calculateDuration(seg, totalDist)
+            local proportionalDuration = (seg.distance / totalDist) * TOTAL_DURATION
+            local minDurationBySpeed = seg.distance / MAX_SPEED
+            local finalDuration = math.max(proportionalDuration, minDurationBySpeed)
+            if customDurations[seg.checkpointIndex] then
+                finalDuration = math.max(finalDuration, customDurations[seg.checkpointIndex])
+            end
+            return finalDuration
+        end
+
+        -- === JALANKAN ===
+        local originalAnchor = hrp.Anchored
+        local originalCanCollide = hrp.CanCollide
+        local bodyParts = {}
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") and part ~= hrp then
+                table.insert(bodyParts, {part = part, canCollide = part.CanCollide})
+                part.CanCollide = false
+            end
+        end
+        
+        local startTime = tick()
+        
+        for i, seg in ipairs(segments) do
+            local duration = calculateDuration(seg, totalDistance)
+            print(string.format("🚶 Segmen %d/%d → CP%d: %.1f stud dalam %.2f detik", i, #segments, seg.checkpointIndex, seg.distance, duration))
+            
+            hrp.Anchored = true
+            task.wait(0.05)
+            
+            moveTo(seg.to, duration)
+            
+            hrp.Anchored = false
+            task.wait(0.3)
+            
+            print(string.format("✓ Checkpoint %d tercapai", seg.checkpointIndex))
+        end
+        
+        local elapsedTime = tick() - startTime
+        print(string.format("✅ Sampai di Summit dalam %.1f detik!", elapsedTime))
+        
+        hrp.Anchored = originalAnchor
+        hrp.CanCollide = originalCanCollide
+        for _, data in pairs(bodyParts) do
+            data.part.CanCollide = data.canCollide
+        end
+        
+        task.wait(0.5)
+        
+        print("🚶 Berjalan ke lokasi final...")
+        walkTo(finalWalkPosition)
+        
+        local totalTime = tick() - startTime
+        print(string.format("🎉 Perjalanan selesai! Total waktu: %.1f detik", totalTime))
+        
+        -- Handle loop or stop
+        mainThread = nil
+        if isLoopActive then
+            print("🔁 Loop aktif, menunggu teleport dan memulai ulang...")
+            task.wait(2) -- Jeda untuk game melakukan teleport
+            startPath()
+        else
+            isScriptActive = false
+            updateOnOffButton()
+        end
+    end)
+end
+
+-- =================================================================
+-- GUI EVENT CONNECTIONS
+-- =================================================================
+
+onOffButton.MouseButton1Click:Connect(function()
+    isScriptActive = not isScriptActive
+    updateOnOffButton()
+    if isScriptActive then
+        startPath()
+    else
+        stopPath()
+    end
+end)
+
+loopButton.MouseButton1Click:Connect(function()
+    isLoopActive = not isLoopActive
+    updateLoopButton()
+    print("🔄 Loop diatur ke: " .. tostring(isLoopActive))
+end)
+
+minimizeButton.MouseButton1Click:Connect(toggleMinimize)
+
+-- Hover Effects
+local function addHoverEffect(button)
+    local originalColor = button.BackgroundColor3
+    button.MouseEnter:Connect(function()
+        button.BackgroundColor3 = originalColor:Lerp(Color3.new(1,1,1), 0.2)
+    end)
+    button.MouseLeave:Connect(function()
+        button.BackgroundColor3 = originalColor
+    end)
+end
+
+-- We need to re-apply hover effect when colors change
+onOffButton:GetPropertyChangedSignal("BackgroundColor3"):Connect(function()
+    addHoverEffect(onOffButton)
+end)
+loopButton:GetPropertyChangedSignal("BackgroundColor3"):Connect(function()
+    addHoverEffect(loopButton)
+end)
+
+-- Initial setup
+updateOnOffButton()
+updateLoopButton()
+addHoverEffect(onOffButton)
+addHoverEffect(loopButton)
+
+print("Pathfinder GUI Loaded. Tekan ON untuk memulai.")
