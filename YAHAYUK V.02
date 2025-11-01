@@ -45,10 +45,10 @@ local COMPLETION_THRESHOLD = 50 -- Jarak untuk menganggap sudah sampai checkpoin
 local customDurations = {
     [2] = 7,  -- CP1→CP2
     [4] = 7.2,   -- CP3→CP4
-    [5] = 9.8,  -- CP4→CP4b
+    [5] = 10,  -- CP4→CP4b
     [6] = 10,  -- CP4b→CP5
     [7] = 10,  -- CP5→CP5b (NEW)
-    [8] = 5.9   -- CP5b→Summit
+    [8] = 5,   -- CP5b→Summit
 }
 
 -- =================================================================
