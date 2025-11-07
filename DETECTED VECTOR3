@@ -1,0 +1,461 @@
+if not writefile then
+    warn("❌ Your executor doesn't support 'writefile()'. Script terminated.")
+    return
+end
+
+local App = {
+    Config = {},
+    Services = {},
+    State = {},
+    GUI = {},
+    Methods = {},
+    Builders = {},
+    Connections = {}
+}
+
+-- ==============================================================
+-- LAYANAN & KONFIGURASI
+-- ==============================================================
+
+App.Services = {
+    Players = game:GetService("Players"),
+    RunService = game:GetService("RunService"),
+    CoreGui = game:GetService("CoreGui"),
+    Player = game:GetService("Players").LocalPlayer
+}
+
+App.Config = {
+    FILE_PATH = "/storage/emulated/0/Delta/Workspace/",
+    MIN_DISTANCE = 5,
+    SHOW_MARKERS = true,
+}
+
+App.State = {
+    RecordedPositions = {},
+    Markers = {},
+    IsRecording = false,
+    AutoRecordConnection = nil
+}
+
+-- ==============================================================
+-- METODE INTI (LOGIKA)
+-- ==============================================================
+
+function App.Methods.CreateMarker(position)
+    if not App.Config.SHOW_MARKERS then return end
+    
+    local marker = Instance.new("Part")
+    marker.Name = "PathMarker"
+    marker.Size = Vector3.new(1, 1, 1)
+    marker.Position = position
+    marker.Anchored = true
+    marker.CanCollide = false
+    marker.Material = Enum.Material.Neon
+    marker.Color = Color3.fromRGB(0, 255, 100)
+    marker.Transparency = 0.5
+    marker.Parent = workspace
+    
+    local mesh = Instance.new("SpecialMesh")
+    mesh.MeshType = Enum.MeshType.Sphere
+    mesh.Scale = Vector3.new(1.5, 1.5, 1.5)
+    mesh.Parent = marker
+    
+    table.insert(App.State.Markers, marker)
+    return marker
+end
+
+function App.Methods.ClearMarkers()
+    for _, marker in ipairs(App.State.Markers) do
+        if marker and marker.Parent then
+            marker:Destroy()
+        end
+    end
+    App.State.Markers = {}
+end
+
+function App.Methods.GetDistanceFromLast(newPos)
+    if #App.State.RecordedPositions == 0 then return math.huge end
+    local lastPos = App.State.RecordedPositions[#App.State.RecordedPositions]
+    return (newPos - lastPos).Magnitude
+end
+
+function App.Methods.FormatNumber(num)
+    return string.format("%.3f", num)
+end
+
+function App.Methods.ValidateFileName(fileName)
+    if fileName == "" then
+        return false, "File name cannot be empty"
+    end
+    if not string.match(fileName, "%.lua$") then
+        return false, "File name must end with .lua"
+    end
+    if string.match(fileName, "[/\\:*?\"<>|]") then
+        return false, "File name contains invalid characters"
+    end
+    return true, "Valid"
+end
+
+function App.Methods.SaveToFile(fileName, showMessage)
+    showMessage = showMessage == nil and true or showMessage
+    
+    if #App.State.RecordedPositions == 0 then
+        warn("⚠️ No positions recorded yet")
+        return false
+    end
+    
+    local valid, msg = App.Methods.ValidateFileName(fileName)
+    if not valid then
+        warn("❌ Invalid file name: " .. msg)
+        return false
+    end
+    
+    local content = {
+        "-- Path Recording File",
+        "-- Created: " .. os.date("%Y-%m-%d %H:%M:%S"),
+        "-- Total Points: " .. #App.State.RecordedPositions,
+        "-- Min Distance: " .. App.Config.MIN_DISTANCE .. " studs",
+        "",
+        "return {",
+    }
+    
+    for i, pos in ipairs(App.State.RecordedPositions) do
+        local line = string.format(
+            "\tVector3.new(%s, %s, %s), -- Point #%d",
+            App.Methods.FormatNumber(pos.X),
+            App.Methods.FormatNumber(pos.Y),
+            App.Methods.FormatNumber(pos.Z),
+            i
+        )
+        table.insert(content, line)
+    end
+    
+    table.insert(content, "}")
+    
+    local fileContent = table.concat(content, "\n")
+    local fullPath = App.Config.FILE_PATH .. fileName
+    
+    writefile(fullPath, fileContent)
+    
+    if showMessage then
+        print("✅ Successfully saved " .. #App.State.RecordedPositions .. " points to:")
+        print("   " .. fullPath)
+    end
+    return true
+end
+
+function App.Methods.UpdateInfoLabel()
+    local totalDistance = 0
+    for i = 2, #App.State.RecordedPositions do
+        totalDistance = totalDistance + (App.State.RecordedPositions[i] - App.State.RecordedPositions[i-1]).Magnitude
+    end
+    
+    App.GUI.InfoLabel.Text = string.format("Points: %d | Distance: %.1f studs", 
+        #App.State.RecordedPositions, totalDistance)
+end
+
+function App.Methods.RecordPosition()
+    local character = App.Services.Player.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    
+    if not rootPart then
+        warn("⚠️ Character not found")
+        return false
+    end
+    
+    local currentPos = rootPart.Position
+    
+    if App.Methods.GetDistanceFromLast(currentPos) < App.Config.MIN_DISTANCE then
+        return false
+    end
+    
+    table.insert(App.State.RecordedPositions, currentPos)
+    App.Methods.CreateMarker(currentPos)
+    App.Methods.UpdateInfoLabel()
+    
+    return true
+end
+
+-- ==============================================================
+-- PEMBUAT ELEMEN GUI (BUILDERS)
+-- ==============================================================
+
+function App.Builders.CreateMainGUI()
+    App.GUI.ScreenGui = Instance.new("ScreenGui")
+    App.GUI.ScreenGui.Name = "PathRecorderGUI"
+    App.GUI.ScreenGui.ResetOnSpawn = false
+    App.GUI.ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+    App.GUI.MainFrame = Instance.new("Frame")
+    App.GUI.MainFrame.Name = "MainFrame"
+    App.GUI.MainFrame.Size = UDim2.new(0, 260, 0, 280)
+    App.GUI.MainFrame.Position = UDim2.new(0, 10, 0.5, -140)
+    App.GUI.MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+    App.GUI.MainFrame.BorderSizePixel = 0
+    App.GUI.MainFrame.Active = true
+    App.GUI.MainFrame.Draggable = true
+    App.GUI.MainFrame.Parent = App.GUI.ScreenGui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = App.GUI.MainFrame
+    
+    local shadow = Instance.new("ImageLabel")
+    shadow.Name = "Shadow"
+    shadow.Size = UDim2.new(1, 30, 1, 30)
+    shadow.Position = UDim2.new(0, -15, 0, -15)
+    shadow.BackgroundTransparency = 1
+    shadow.Image = "rbxasset://textures/ui/GUI/DropShadow.png"
+    shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
+    shadow.ImageTransparency = 0.5
+    shadow.ScaleType = Enum.ScaleType.Slice
+    shadow.SliceCenter = Rect.new(50, 50, 100, 100)
+    shadow.ZIndex = -1
+    shadow.Parent = App.GUI.MainFrame
+
+    local success = pcall(function()
+        App.GUI.ScreenGui.Parent = App.Services.CoreGui
+    end)
+    if not success then
+        App.GUI.ScreenGui.Parent = App.Services.Player:WaitForChild("PlayerGui")
+    end
+end
+
+function App.Builders.CreateTitleBar()
+    local titleBar = Instance.new("Frame")
+    titleBar.Name = "TitleBar"
+    titleBar.Size = UDim2.new(1, 0, 0, 40)
+    titleBar.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    titleBar.BorderSizePixel = 0
+    titleBar.Parent = App.GUI.MainFrame
+
+    local titleCorner = Instance.new("UICorner")
+    titleCorner.CornerRadius = UDim.new(0, 8)
+    titleCorner.Parent = titleBar
+
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Name = "Title"
+    titleLabel.Size = UDim2.new(1, -10, 1, 0)
+    titleLabel.Position = UDim2.new(0, 10, 0, 0)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "📍 Path Recorder v2.0"
+    titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.TextSize = 16
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.Parent = titleBar
+    
+    App.GUI.TitleBar = titleBar
+end
+
+function App.Builders.CreateInfoLabel()
+    local infoLabel = Instance.new("TextLabel")
+    infoLabel.Name = "InfoLabel"
+    infoLabel.Size = UDim2.new(1, -20, 0, 30)
+    infoLabel.Position = UDim2.new(0, 10, 0, 50)
+    infoLabel.BackgroundTransparency = 1
+    infoLabel.Text = "Points: 0 | Distance: 0 studs"
+    infoLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+    infoLabel.Font = Enum.Font.Gotham
+    infoLabel.TextSize = 12
+    infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+    infoLabel.Parent = App.GUI.MainFrame
+    
+    App.GUI.InfoLabel = infoLabel
+end
+
+function App.Builders.CreateButtons()
+    local recordButton = Instance.new("TextButton")
+    recordButton.Name = "RecordButton"
+    recordButton.Size = UDim2.new(1, -20, 0, 35)
+    recordButton.Position = UDim2.new(0, 10, 0, 90)
+    recordButton.BackgroundColor3 = Color3.fromRGB(40, 160, 70)
+    recordButton.Text = "🔴 Record Position"
+    recordButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    recordButton.Font = Enum.Font.GothamBold
+    recordButton.TextSize = 14
+    recordButton.BorderSizePixel = 0
+    recordButton.AutoButtonColor = false
+    recordButton.Parent = App.GUI.MainFrame
+    local recordCorner = Instance.new("UICorner")
+    recordCorner.CornerRadius = UDim.new(0, 6)
+    recordCorner.Parent = recordButton
+    App.GUI.RecordButton = recordButton
+
+    local autoRecordButton = Instance.new("TextButton")
+    autoRecordButton.Name = "AutoRecordButton"
+    autoRecordButton.Size = UDim2.new(1, -20, 0, 35)
+    autoRecordButton.Position = UDim2.new(0, 10, 0, 135)
+    autoRecordButton.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+    autoRecordButton.Text = "⏸️ Auto Record: OFF"
+    autoRecordButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    autoRecordButton.Font = Enum.Font.GothamBold
+    autoRecordButton.TextSize = 14
+    autoRecordButton.BorderSizePixel = 0
+    autoRecordButton.AutoButtonColor = false
+    autoRecordButton.Parent = App.GUI.MainFrame
+    local autoRecordCorner = Instance.new("UICorner")
+    autoRecordCorner.CornerRadius = UDim.new(0, 6)
+    autoRecordCorner.Parent = autoRecordButton
+    App.GUI.AutoRecordButton = autoRecordButton
+end
+
+function App.Builders.CreateInputAndControls()
+    local fileNameBox = Instance.new("TextBox")
+    fileNameBox.Name = "FileNameBox"
+    fileNameBox.Size = UDim2.new(1, -20, 0, 35)
+    fileNameBox.Position = UDim2.new(0, 10, 0, 180)
+    fileNameBox.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+    fileNameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    fileNameBox.PlaceholderText = "Enter filename (e.g., MyPath.lua)"
+    fileNameBox.Text = "RecordedPath.lua"
+    fileNameBox.Font = Enum.Font.Gotham
+    fileNameBox.TextSize = 13
+    fileNameBox.ClearTextOnFocus = false
+    fileNameBox.BorderSizePixel = 0
+    fileNameBox.Parent = App.GUI.MainFrame
+    local fileNameCorner = Instance.new("UICorner")
+    fileNameCorner.CornerRadius = UDim.new(0, 6)
+    fileNameCorner.Parent = fileNameBox
+    App.GUI.FileNameBox = fileNameBox
+
+    local saveButton = Instance.new("TextButton")
+    saveButton.Name = "SaveButton"
+    saveButton.Size = UDim2.new(0.48, 0, 0, 35)
+    saveButton.Position = UDim2.new(0, 10, 0, 225)
+    saveButton.BackgroundColor3 = Color3.fromRGB(70, 130, 200)
+    saveButton.Text = "💾 Save"
+    saveButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    saveButton.Font = Enum.Font.GothamBold
+    saveButton.TextSize = 14
+    saveButton.BorderSizePixel = 0
+    saveButton.AutoButtonColor = false
+    saveButton.Parent = App.GUI.MainFrame
+    local saveCorner = Instance.new("UICorner")
+    saveCorner.CornerRadius = UDim.new(0, 6)
+    saveCorner.Parent = saveButton
+    App.GUI.SaveButton = saveButton
+
+    local clearButton = Instance.new("TextButton")
+    clearButton.Name = "ClearButton"
+    clearButton.Size = UDim2.new(0.48, 0, 0, 35)
+    clearButton.Position = UDim2.new(0.52, 0, 0, 225)
+    clearButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+    clearButton.Text = "🗑️ Clear"
+    clearButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    clearButton.Font = Enum.Font.GothamBold
+    clearButton.TextSize = 14
+    clearButton.BorderSizePixel = 0
+    clearButton.AutoButtonColor = false
+    clearButton.Parent = App.GUI.MainFrame
+    local clearCorner = Instance.new("UICorner")
+    clearCorner.CornerRadius = UDim.new(0, 6)
+    clearCorner.Parent = clearButton
+    App.GUI.ClearButton = clearButton
+end
+
+-- ==============================================================
+-- KONEKSI EVENT (LOGIKA TOMBOL)
+-- ==============================================================
+
+function App.Connections.BindButtonLogic()
+    App.GUI.RecordButton.MouseButton1Click:Connect(function()
+        if App.Methods.RecordPosition() then
+            App.GUI.RecordButton.BackgroundColor3 = Color3.fromRGB(50, 200, 90)
+            task.wait(0.1)
+            App.GUI.RecordButton.BackgroundColor3 = Color3.fromRGB(40, 160, 70)
+            print("✅ Position #" .. #App.State.RecordedPositions .. " recorded")
+        end
+    end)
+
+    App.GUI.AutoRecordButton.MouseButton1Click:Connect(function()
+        App.State.IsRecording = not App.State.IsRecording
+        
+        if App.State.IsRecording then
+            App.GUI.AutoRecordButton.BackgroundColor3 = Color3.fromRGB(200, 70, 70)
+            App.GUI.AutoRecordButton.Text = "⏺️ Auto Record: ON"
+            
+            App.State.AutoRecordConnection = App.Services.RunService.Heartbeat:Connect(function()
+                App.Methods.RecordPosition()
+            end)
+        else
+            App.GUI.AutoRecordButton.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+            App.GUI.AutoRecordButton.Text = "⏸️ Auto Record: OFF"
+            
+            if App.State.AutoRecordConnection then
+                App.State.AutoRecordConnection:Disconnect()
+                App.State.AutoRecordConnection = nil
+            end
+        end
+    end)
+
+    App.GUI.SaveButton.MouseButton1Click:Connect(function()
+        if App.Methods.SaveToFile(App.GUI.FileNameBox.Text) then
+            App.GUI.SaveButton.BackgroundColor3 = Color3.fromRGB(90, 170, 230)
+            task.wait(0.2)
+            App.GUI.SaveButton.BackgroundColor3 = Color3.fromRGB(70, 130, 200)
+        end
+    end)
+
+    App.GUI.ClearButton.MouseButton1Click:Connect(function()
+        if #App.State.RecordedPositions > 0 then
+            App.State.RecordedPositions = {}
+            App.Methods.ClearMarkers()
+            App.Methods.UpdateInfoLabel()
+            print("🗑️ All positions cleared")
+            
+            App.GUI.ClearButton.BackgroundColor3 = Color3.fromRGB(230, 70, 70)
+            task.wait(0.2)
+            App.GUI.ClearButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+        end
+    end)
+end
+
+function App.Connections.BindHoverEffects()
+    local function addHoverEffect(button, normalColor, hoverColor)
+        button.MouseEnter:Connect(function()
+            button.BackgroundColor3 = hoverColor
+        end)
+        button.MouseLeave:Connect(function()
+            if button.Name ~= "AutoRecordButton" or not App.State.IsRecording then
+                 button.BackgroundColor3 = normalColor
+            end
+        end)
+    end
+    
+    addHoverEffect(App.GUI.RecordButton, Color3.fromRGB(40, 160, 70), Color3.fromRGB(50, 180, 85))
+    addHoverEffect(App.GUI.SaveButton, Color3.fromRGB(70, 130, 200), Color3.fromRGB(85, 150, 220))
+    addHoverEffect(App.GUI.ClearButton, Color3.fromRGB(200, 50, 50), Color3.fromRGB(220, 70, 70))
+    addHoverEffect(App.GUI.AutoRecordButton, Color3.fromRGB(60, 60, 80), Color3.fromRGB(80, 80, 100))
+end
+
+function App.Connections.BindCleanup()
+    App.GUI.ScreenGui.Destroying:Connect(function()
+        if App.State.AutoRecordConnection then
+            App.State.AutoRecordConnection:Disconnect()
+        end
+        App.Methods.ClearMarkers()
+    end)
+end
+
+-- ==============================================================
+-- INISIALISASI
+-- ==============================================================
+
+function App:Init()
+    App.Builders.CreateMainGUI()
+    App.Builders.CreateTitleBar()
+    App.Builders.CreateInfoLabel()
+    App.Builders.CreateButtons()
+    App.Builders.CreateInputAndControls()
+    
+    App.Connections.BindButtonLogic()
+    App.Connections.BindHoverEffects()
+    App.Connections.BindCleanup()
+    
+    print("✅ Path Recorder v2.0 loaded successfully!")
+    print("📁 Save path: " .. App.Config.FILE_PATH)
+    print("📏 Min distance: " .. App.Config.MIN_DISTANCE .. " studs")
+end
+
+App:Init()
