@@ -26,7 +26,7 @@ App.Services = {
 
 App.Config = {
     FILE_PATH = "/storage/emulated/0/Delta/Workspace/",
-    MIN_DISTANCE = 5,
+    MIN_DISTANCE = 1,
     SHOW_MARKERS = true,
 }
 
@@ -45,7 +45,7 @@ function App.Methods.CreateMarker(position)
     if not App.Config.SHOW_MARKERS then return end
     
     local marker = Instance.new("Part")
-    marker.Name = "PathMarker"
+    marker.Name = "detection vector3"
     marker.Size = Vector3.new(1, 1, 1)
     marker.Position = position
     marker.Anchored = true
@@ -111,7 +111,7 @@ function App.Methods.SaveToFile(fileName, showMessage)
     end
     
     local content = {
-        "-- Path Recording File",
+        "-- coordinate vector3",
         "-- Created: " .. os.date("%Y-%m-%d %H:%M:%S"),
         "-- Total Points: " .. #App.State.RecordedPositions,
         "-- Min Distance: " .. App.Config.MIN_DISTANCE .. " studs",
@@ -452,10 +452,7 @@ function App:Init()
     App.Connections.BindButtonLogic()
     App.Connections.BindHoverEffects()
     App.Connections.BindCleanup()
-    
-    print("✅ Path Recorder v2.0 loaded successfully!")
-    print("📁 Save path: " .. App.Config.FILE_PATH)
-    print("📏 Min distance: " .. App.Config.MIN_DISTANCE .. " studs")
+       
 end
 
 App:Init()
