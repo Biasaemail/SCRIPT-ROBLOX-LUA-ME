@@ -1,0 +1,344 @@
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+-- Variables
+local Player = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local Mouse = Player:GetMouse()
+local Flying = false
+local Speed = 200
+local CurrentVehicle = nil
+local Direction = Vector3.new(0, 0, 0)
+local ActiveKeys = {} -- Track active keys/buttons
+
+-- GUI - **IMPROVED SECTION**
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Parent = Player:WaitForChild("PlayerGui")
+ScreenGui.ResetOnSpawn = false -- Prevent GUI from resetting on death
+
+-- Main Frame for the controls
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 350, 0, 250)
+MainFrame.Position = UDim2.new(0.5, -175, 1, -280) -- Anchor to bottom-center
+MainFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+MainFrame.BackgroundTransparency = 0.2
+MainFrame.BorderSizePixel = 0
+MainFrame.Parent = ScreenGui
+
+-- Add rounded corners and a border to the main frame
+local frameCorner = Instance.new("UICorner")
+frameCorner.CornerRadius = UDim.new(0, 12)
+frameCorner.Parent = MainFrame
+
+local frameStroke = Instance.new("UIStroke")
+frameStroke.Color = Color3.fromRGB(100, 100, 100)
+frameStroke.Thickness = 1
+frameStroke.Parent = MainFrame
+
+local framePadding = Instance.new("UIPadding")
+framePadding.PaddingTop = UDim.new(0, 10)
+framePadding.PaddingBottom = UDim.new(0, 10)
+framePadding.PaddingLeft = UDim.new(0, 10)
+framePadding.PaddingRight = UDim.new(0, 10)
+framePadding.Parent = MainFrame
+
+-- Title Label
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, 0, 0, 30)
+titleLabel.Position = UDim2.new(0, 0, 0, 0)
+titleLabel.Text = "Vehicle Fly Controls"
+titleLabel.Font = Enum.Font.SourceSansBold
+titleLabel.TextScaled = true
+titleLabel.TextColor3 = Color3.new(1, 1, 1)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Parent = MainFrame
+
+-- Function to create and style buttons
+local function createStyledButton(text, pos, size)
+    local btn = Instance.new("TextButton")
+    btn.Size = size
+    btn.Position = pos
+    btn.Text = text
+    btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextScaled = true
+    btn.Parent = MainFrame
+    btn.ZIndex = 2
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = btn
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(0, 170, 255)
+    stroke.Thickness = 1
+    stroke.Parent = btn
+    
+    return btn
+end
+
+-- Create buttons with a more organized layout
+local buttonSize = UDim2.new(0, 60, 0, 60)
+local wideButtonSize = UDim2.new(0, 200, 0, 40)
+local smallButtonSize = UDim2.new(0, 80, 0, 30)
+
+-- Toggle Button
+local toggleBtn = createStyledButton("Toggle Fly", UDim2.new(0.5, -100, 0, 40), wideButtonSize)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 90) -- Initial Green color
+toggleBtn.ZIndex = 3
+
+-- Movement buttons (D-pad style)
+local dpadCenterX, dpadCenterY = 0.5, 0.55
+local forwardBtn = createStyledButton("W", UDim2.new(dpadCenterX, -30, dpadCenterY, -65), buttonSize)
+local backwardBtn = createStyledButton("S", UDim2.new(dpadCenterX, -30, dpadCenterY, 5), buttonSize)
+local leftBtn = createStyledButton("A", UDim2.new(dpadCenterX, -95, dpadCenterY, -30), buttonSize)
+local rightBtn = createStyledButton("D", UDim2.new(dpadCenterX, 35, dpadCenterY, -30), buttonSize)
+
+-- Up/Down buttons
+local upBtn = createStyledButton("Up (E)", UDim2.new(0, 20, 0.5, -40), smallButtonSize)
+local downBtn = createStyledButton("Down (Q)", UDim2.new(0, 20, 0.5, 0), smallButtonSize)
+
+-- Speed input
+local speedLabel = Instance.new("TextLabel")
+speedLabel.Size = UDim2.new(0, 60, 0, 30)
+speedLabel.Position = UDim2.new(0.5, -30, 1, -40)
+speedLabel.Text = "Speed:"
+speedLabel.Font = Enum.Font.SourceSans
+speedLabel.TextScaled = true
+speedLabel.TextColor3 = Color3.new(1, 1, 1)
+speedLabel.BackgroundTransparency = 1
+speedLabel.TextXAlignment = Enum.TextXAlignment.Right
+speedLabel.Parent = MainFrame
+
+local speedBox = Instance.new("TextBox")
+speedBox.Size = UDim2.new(0, 80, 0, 30)
+speedBox.Position = UDim2.new(0.5, 40, 1, -40)
+speedBox.Text = "200"
+speedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+speedBox.TextColor3 = Color3.new(1, 1, 1)
+speedBox.Font = Enum.Font.SourceSansBold
+speedBox.Parent = MainFrame
+speedBox.ClearTextOnFocus = false
+
+local speedBoxCorner = Instance.new("UICorner")
+speedBoxCorner.CornerRadius = UDim.new(0, 8)
+speedBoxCorner.Parent = speedBox
+
+local speedBoxStroke = Instance.new("UIStroke")
+speedBoxStroke.Color = Color3.fromRGB(150, 150, 150)
+speedBoxStroke.Thickness = 1
+speedBoxStroke.Parent = speedBox
+
+-- ** END OF IMPROVED GUI SECTION ** --
+
+-- Function to reset direction
+local function resetDirection()
+    Direction = Vector3.new(0, 0, 0)
+    for _, key in pairs(ActiveKeys) do
+        if key.active then
+            Direction = Direction + key.vector
+        end
+    end
+end
+
+-- Main flying function
+local function getVehicle()
+    local char = Player.Character
+    if not char then return nil end
+    
+    local humanoid = char:FindFirstChild("Humanoid")
+    if not humanoid then return nil end
+    
+    if humanoid.SeatPart then
+        return humanoid.SeatPart.Parent
+    end
+    return nil
+end
+
+-- Store original camera CFrame
+local originalCameraType
+local originalCameraFocus
+local function saveCameraState()
+    originalCameraType = Camera.CameraType
+    originalCameraFocus = Camera.Focus
+end
+
+local function restoreCameraState()
+    if originalCameraType then
+        Camera.CameraType = originalCameraType
+    end
+end
+
+-- Improved button handling with unique identifiers
+local function handleButton(btn, vec, id)
+    ActiveKeys[id] = {active = false, vector = vec}
+    
+    btn.MouseButton1Down:Connect(function()
+        ActiveKeys[id].active = true
+        resetDirection()
+        btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30) -- Darker color when pressed
+    end)
+    
+    btn.MouseButton1Up:Connect(function()
+        ActiveKeys[id].active = false
+        resetDirection()
+        btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60) -- Normal color
+    end)
+    
+    btn.MouseLeave:Connect(function()
+        if ActiveKeys[id].active then
+            ActiveKeys[id].active = false
+            resetDirection()
+            btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60) -- Normal color
+        end
+    end)
+end
+
+-- Keyboard controls with improved handling
+local keyboardControls = {
+    [Enum.KeyCode.W] = {vector = Vector3.new(0, 0, -1), id = "Forward"},
+    [Enum.KeyCode.S] = {vector = Vector3.new(0, 0, 1), id = "Backward"},
+    [Enum.KeyCode.A] = {vector = Vector3.new(-1, 0, 0), id = "Left"},
+    [Enum.KeyCode.D] = {vector = Vector3.new(1, 0, 0), id = "Right"},
+    [Enum.KeyCode.E] = {vector = Vector3.new(0, 1, 0), id = "Up"},
+    [Enum.KeyCode.Q] = {vector = Vector3.new(0, -1, 0), id = "Down"}
+}
+
+-- Initialize keyboard controls in ActiveKeys
+for _, control in pairs(keyboardControls) do
+    ActiveKeys[control.id] = {active = false, vector = control.vector}
+end
+
+UserInputService.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        local control = keyboardControls[input.KeyCode]
+        if control then
+            ActiveKeys[control.id].active = true
+            resetDirection()
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        local control = keyboardControls[input.KeyCode]
+        if control then
+            ActiveKeys[control.id].active = false
+            resetDirection()
+        end
+    end
+end)
+
+-- Add button handlers with unique IDs
+handleButton(upBtn, Vector3.new(0, 1, 0), "UpBtn")
+handleButton(downBtn, Vector3.new(0, -1, 0), "DownBtn")
+handleButton(leftBtn, Vector3.new(-1, 0, 0), "LeftBtn")
+handleButton(rightBtn, Vector3.new(1, 0, 0), "RightBtn")
+handleButton(forwardBtn, Vector3.new(0, 0, -1), "ForwardBtn")
+handleButton(backwardBtn, Vector3.new(0, 0, 1), "BackBtn")
+
+local lastCF = CFrame.new()
+local function updateFlight()
+    if not Flying then return end
+    
+    CurrentVehicle = getVehicle()
+    if not CurrentVehicle then return end
+    
+    local primary = CurrentVehicle:FindFirstChild("PrimaryPart") or 
+                   CurrentVehicle:FindFirstChild("Body") or 
+                   CurrentVehicle:FindFirstChildWhichIsA("BasePart")
+    
+    if primary then
+        for _, part in pairs(CurrentVehicle:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+            if part:IsA("BodyGyro") or part:IsA("BodyVelocity") or part:IsA("BodyPosition") then
+                part:Destroy()
+            end
+        end
+        
+        if not primary:FindFirstChild("FlyGyro") then
+            local gyro = Instance.new("BodyGyro")
+            gyro.Name = "FlyGyro"
+            gyro.Parent = primary
+            gyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+            gyro.P = 1000
+            gyro.D = 50
+        end
+        
+        if not primary:FindFirstChild("FlyVel") then
+            local vel = Instance.new("BodyVelocity")
+            vel.Name = "FlyVel"
+            vel.Parent = primary
+            vel.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+            vel.P = 1000
+        end
+        
+        local cf = Camera.CFrame
+        local movement = Vector3.new(0, 0, 0)
+        
+        if Direction.X ~= 0 or Direction.Z ~= 0 then
+            local lookVector = cf.LookVector
+            local rightVector = cf.RightVector
+            
+            movement = movement + lookVector * Direction.Z
+            movement = movement + rightVector * Direction.X
+        end
+        
+        movement = movement + Vector3.new(0, Direction.Y, 0)
+        
+        if movement.Magnitude > 0 then
+            movement = movement.Unit * Speed
+        end
+        
+        local gyro = primary.FlyGyro
+        local vel = primary.FlyVel
+        
+        local targetCF = CFrame.lookAt(primary.Position, primary.Position + cf.LookVector)
+        lastCF = lastCF:Lerp(targetCF, 0.1)
+        
+        gyro.CFrame = lastCF
+        vel.Velocity = movement
+        
+        Camera.CameraType = Enum.CameraType.Custom
+        local vehiclePos = primary.Position
+        Camera.CFrame = CFrame.new(vehiclePos - (cf.LookVector * 20) + Vector3.new(0, 5, 0), vehiclePos)
+    end
+end
+
+-- Toggle button handler
+toggleBtn.MouseButton1Click:Connect(function()
+    Flying = not Flying
+    toggleBtn.BackgroundColor3 = Flying and Color3.fromRGB(200, 50, 50) or Color3.fromRGB(0, 180, 90)
+    
+    if Flying then
+        saveCameraState()
+    else
+        restoreCameraState()
+        local vehicle = getVehicle()
+        if vehicle then
+            for _, part in pairs(vehicle:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                end
+                if part.Name == "FlyGyro" or part.Name == "FlyVel" then
+                    part:Destroy()
+                end
+            end
+        end
+        for id, _ in pairs(ActiveKeys) do
+            ActiveKeys[id].active = false
+        end
+        resetDirection()
+    end
+end)
+
+speedBox.FocusLost:Connect(function()
+    Speed = tonumber(speedBox.Text) or Speed
+end)
+
+RunService.Heartbeat:Connect(updateFlight)
