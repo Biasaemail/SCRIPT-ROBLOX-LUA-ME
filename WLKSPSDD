@@ -1,0 +1,306 @@
+--=====================================================================
+--  HYBRID WALKSPEED SYSTEM (v3.2 Reload-Safe)
+--  Fitur:
+--    ✔ Anti-Double Execution (Reload System)
+--    ✔ Walkspeed: MetaHook + Property Signal (Hybrid)
+--    ✔ Noclip: Stepped + Conditional Write (Optimized)
+--    ✔ Anti-AFK & InfJump
+--=====================================================================
+
+local Services = {
+    Players = game:GetService("Players"),
+    RunService = game:GetService("RunService"),
+    UIS = game:GetService("UserInputService"),
+    StarterGui = game:GetService("StarterGui"),
+    VirtualUser = game:GetService("VirtualUser")
+}
+
+local player = Services.Players.LocalPlayer
+repeat task.wait() until player
+
+--=====================================================================
+-- [CORE] PREVENT DOUBLE EXECUTION & CLEANUP
+--=====================================================================
+-- Ini adalah logic kuncinya. Kita simpan fungsi cleanup di global.
+-- Jika script dijalankan lagi, kita panggil cleanup dulu sebelum lanjut.
+
+if getgenv().WalkspeedSystemLoaded then
+    warn("⚠ Script already running! Cleaning up old instance...")
+    if getgenv().CleanupWalkspeedSystem then
+        getgenv().CleanupWalkspeedSystem() -- Matikan script lama
+    end
+    task.wait(0.2) -- Beri waktu sebentar untuk cleanup
+end
+
+getgenv().WalkspeedSystemLoaded = true
+
+--=====================================================================
+--                        CONFIGURATION
+--=====================================================================
+
+getgenv().SpeedConfig = {
+    Speed = 100,
+    UseMetaHook = false, -- Otomatis berubah jika Logic 1 gagal
+    Noclip = true,
+    InfJump = true,
+    AntiAFK = true,
+    DebugMode = false
+}
+
+local Config = getgenv().SpeedConfig
+local Connections = {} -- Penampung semua koneksi event
+local SmartCheckRunning = false
+
+-- Fungsi untuk membersihkan semua koneksi (Global Cleanup)
+getgenv().CleanupWalkspeedSystem = function()
+    for name, conn in pairs(Connections) do
+        if conn then
+            conn:Disconnect()
+            -- print("Disconnected:", name)
+        end
+    end
+    Connections = {}
+    getgenv().WalkspeedSystemLoaded = false
+    -- Reset Noclip physics jika sedang aktif
+    if player.Character then
+        for _, part in ipairs(player.Character:GetDescendants()) do
+            if part:IsA("BasePart") then part.CanCollide = true end
+        end
+    end
+    warn("✔ System Cleaned Up")
+end
+
+--=====================================================================
+--                         UTILITIES
+--=====================================================================
+
+local function Notify(title, msg)
+    pcall(function()
+        Services.StarterGui:SetCore("SendNotification", {
+            Title = title, Text = tostring(msg), Duration = 2.5
+        })
+    end)
+end
+
+local function DebugLog(...)
+    if Config.DebugMode then print("[WS-DEBUG]", ...) end
+end
+
+local function AddConnection(name, conn)
+    -- Jika ada koneksi dengan nama sama, putuskan dulu (safety)
+    if Connections[name] then Connections[name]:Disconnect() end
+    Connections[name] = conn
+end
+
+--=====================================================================
+--                 WALKSPEED SYSTEM (CORE)
+--=====================================================================
+
+local SpeedSystem = {}
+
+function SpeedSystem.GetHumanoid()
+    local char = player.Character
+    if not char then return nil end
+    return char:FindFirstChild("Humanoid")
+end
+
+function SpeedSystem.SetSpeed(hum, value)
+    if not hum then return end
+    hum.AutoJumpEnabled = false 
+    pcall(function() hum.WalkSpeed = value end)
+end
+
+function SpeedSystem.PrepareMetaHook()
+    -- Cek conflict agar compatible dengan script lain
+    if getgenv().MetaHookInstalled then return true end
+
+    local success, err = pcall(function()
+        local mt = getrawmetatable(game)
+        setreadonly(mt, false)
+
+        if not getgenv()._OriginalNewIndex then
+            getgenv()._OriginalNewIndex = mt.__newindex
+        end
+        
+        local originalFunc = getgenv()._OriginalNewIndex
+
+        mt.__newindex = newcclosure(function(self, idx, val)
+            if idx == "WalkSpeed" and not checkcaller() then
+                if Config.UseMetaHook then
+                    -- Fake speed ke server/game, tapi lokal tetap cepat
+                    return originalFunc(self, idx, Config.Speed)
+                end
+            end
+            return originalFunc(self, idx, val)
+        end)
+
+        setreadonly(mt, true)
+        getgenv().MetaHookInstalled = true
+        DebugLog("MetaHook Installed")
+    end)
+    return success
+end
+
+-- Logic 1: Property Lock (Ringan)
+function SpeedSystem.SetupLogic1(char)
+    if not char then return end
+    local hum = char:WaitForChild("Humanoid", 10)
+    if not hum then return end
+
+    AddConnection("speedLock", hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+        if Config.UseMetaHook then return end -- Jika MetaHook aktif, logic ini diam
+        
+        if math.abs(hum.WalkSpeed - Config.Speed) > 1 then
+            SpeedSystem.SetSpeed(hum, Config.Speed)
+        end
+    end))
+end
+
+-- Logic Auto Switcher (Mendeteksi Anti-Cheat sederhana)
+function SpeedSystem.SmartCheck()
+    if SmartCheckRunning then return end
+    SmartCheckRunning = true
+    
+    task.spawn(function()
+        local char = player.Character
+        task.wait(1.5) 
+        
+        if not player.Character or player.Character ~= char then
+            SmartCheckRunning = false
+            return
+        end
+
+        local hum = char:FindFirstChild("Humanoid")
+        if not hum then SmartCheckRunning = false return end
+
+        SpeedSystem.PrepareMetaHook()
+        
+        -- Test Logic
+        SpeedSystem.SetSpeed(hum, Config.Speed)
+        task.wait(0.5)
+        
+        -- Cek apakah speed dikembalikan oleh game
+        local diff = math.abs(hum.WalkSpeed - Config.Speed)
+        
+        if diff <= 1 then
+            Config.UseMetaHook = false -- Logic 1 Aman
+            DebugLog("Mode: Simple Lock")
+        else
+            Config.UseMetaHook = true -- Logic 1 Gagal, Aktifkan Hook
+            DebugLog("Mode: MetaHook Active (Bypass)")
+            SpeedSystem.SetSpeed(hum, Config.Speed) 
+        end
+        
+        SmartCheckRunning = false
+    end)
+end
+
+function SpeedSystem.UpdateSpeed(newSpeed)
+    Config.Speed = newSpeed
+    local hum = SpeedSystem.GetHumanoid()
+    if hum then SpeedSystem.SetSpeed(hum, newSpeed) end
+end
+
+--=====================================================================
+--           EFFICIENT STEPPED NOCLIP (Optimized)
+--=====================================================================
+
+local NoclipSystem = {}
+
+function NoclipSystem.StartLoop()
+    AddConnection("steppedNoclip", Services.RunService.Stepped:Connect(function()
+        if not Config.Noclip then return end
+        local char = player.Character
+        if not char then return end
+
+        -- OPTIMISASI: Hanya set false JIKA nilainya true.
+        -- Ini mencegah spam write property yang bikin FPS drop.
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide == true then
+                part.CanCollide = false
+            end
+        end
+    end))
+end
+
+--=====================================================================
+--                  UTILITIES (InfJump & Anti-AFK)
+--=====================================================================
+
+local function SetupAntiAFK()
+    local lastAction = 0
+    
+    AddConnection("antiAFK", player.Idled:Connect(function()
+        if not Config.AntiAFK then return end
+        if tick() - lastAction < 3 then return end
+        lastAction = tick()
+        
+        Services.VirtualUser:CaptureController()
+        Services.VirtualUser:ClickButton2(Vector2.new())
+    end))
+end
+
+local function SetupInfJump()
+    AddConnection("infJump", Services.UIS.JumpRequest:Connect(function()
+        if Config.InfJump and player.Character then
+            local hum = player.Character:FindFirstChild("Humanoid")
+            if hum then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+        end
+    end))
+end
+
+--=====================================================================
+--                       CHAT COMMANDS
+--=====================================================================
+
+AddConnection("chatCmds", player.Chatted:Connect(function(msg)
+    local m = msg:lower()
+    
+    if m:match("^/%d+$") then -- Contoh: /150
+        local val = tonumber(m:sub(2))
+        if val then 
+            SpeedSystem.UpdateSpeed(val)
+            Notify("Speed Set", val)
+        end
+    elseif m == "/noclipon" or m == "/noclip" then
+        Config.Noclip = true
+        Notify("Noclip", "ON")
+    elseif m == "/noclipoff" then
+        Config.Noclip = false
+        Notify("Noclip", "OFF")
+    elseif m == "/infjumpon" then
+        Config.InfJump = true
+        Notify("InfJump", "ON")
+    elseif m == "/infjumpoff" then
+        Config.InfJump = false
+        Notify("InfJump", "OFF")
+    end
+end))
+
+--=====================================================================
+--                         INITIALIZE
+--=====================================================================
+
+-- Handle Respawn
+AddConnection("charAdded", player.CharacterAdded:Connect(function(char)
+    SmartCheckRunning = false
+    task.wait(0.5)
+    SpeedSystem.SetupLogic1(char)
+    SpeedSystem.SmartCheck()
+end))
+
+-- Start First Time
+if player.Character then
+    SmartCheckRunning = false
+    SpeedSystem.SetupLogic1(player.Character)
+    SpeedSystem.SmartCheck()
+end
+
+NoclipSystem.StartLoop()
+SetupAntiAFK()
+SetupInfJump()
+
+Notify("System v3.2", "Loaded & Safe")
+print("=== OPTIMIZED WALKSPEED SYSTEM ACTIVE (SINGLE INSTANCE) ===")
